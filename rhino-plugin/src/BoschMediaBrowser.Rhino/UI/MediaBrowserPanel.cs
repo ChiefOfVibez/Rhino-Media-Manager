@@ -577,6 +577,7 @@ public class MediaBrowserPanel : Panel
         _productListView.ProductSelected += OnProductSelectedInGrid;
         _productListView.ProductPreview += OnProductPreviewRequested;
         _productListView.ProductInsert += OnProductInsertRequested;
+        _productListView.BatchInsert += OnBatchInsertRequested;
         
         // Container panel that can switch between views
         _productViewContainer = new Panel
@@ -1053,53 +1054,55 @@ public class MediaBrowserPanel : Panel
     
     private void OnProductInsertRequested(object? sender, ProductCardEventArgs e)
     {
-        // Use holder key from event args (format: "Variant_Color" from list view dropdown)
-        var holderKey = e.SelectedHolderVariant;
+        var selectedHolder = ResolveHolderFromKey(e.Product, e.SelectedHolderVariant);
+        RhinoApp.WriteLine($"Insert requested - Holder: {(selectedHolder != null ? $"{selectedHolder.Variant} - {selectedHolder.Color}" : "None")}, Packaging: {e.IncludePackaging}");
+        InsertProductWithHolder(e.Product, selectedHolder, e.IncludePackaging);
+    }
+    
+    private void OnBatchInsertRequested(object? sender, BatchInsertEventArgs e)
+    {
+        UpdateStatus($"Batch inserting {e.Items.Count} products...");
         
-        // Find the holder object by variant_color key
-        Holder? selectedHolder = null;
-        if (!string.IsNullOrEmpty(holderKey) && e.Product.Holders != null)
+        int insertedCount = 0;
+        foreach (var (product, holderKey, includePackaging) in e.Items)
         {
-            // Parse key: "Traverse_RAL9006" -> Variant="Traverse", Color="RAL9006"
-            var parts = holderKey.Split('_', 2);
-            if (parts.Length == 2)
-            {
-                var variant = parts[0];
-                var color = parts[1];
-                
-                selectedHolder = e.Product.Holders.FirstOrDefault(h => 
-                    h.Variant?.Equals(variant, StringComparison.OrdinalIgnoreCase) == true &&
-                    h.Color?.Equals(color, StringComparison.OrdinalIgnoreCase) == true);
-                
-                if (selectedHolder != null)
-                {
-                    RhinoApp.WriteLine($"✓ Found holder: Variant={selectedHolder.Variant}, Color={selectedHolder.Color}, FullPath={selectedHolder.FullPath}");
-                }
-                else
-                {
-                    RhinoApp.WriteLine($"✗ Holder not found in product.Holders for key: {holderKey} (Variant={variant}, Color={color})");
-                }
-            }
-            else
-            {
-                // Fallback: try just variant (backward compatibility)
-                selectedHolder = e.Product.Holders.FirstOrDefault(h => 
-                    h.Variant?.Equals(holderKey, StringComparison.OrdinalIgnoreCase) == true);
-                    
-                if (selectedHolder != null)
-                {
-                    RhinoApp.WriteLine($"✓ Found holder (variant-only match): Variant={selectedHolder.Variant}, Color={selectedHolder.Color}");
-                }
-                else
-                {
-                    RhinoApp.WriteLine($"✗ Holder not found for: {holderKey}");
-                }
-            }
+            var selectedHolder = ResolveHolderFromKey(product, holderKey);
+            InsertProductWithHolder(product, selectedHolder, includePackaging);
+            insertedCount++;
         }
         
-        RhinoApp.WriteLine($"Insert requested - Holder: {(selectedHolder != null ? $"{selectedHolder.Variant} - {selectedHolder.Color}" : "None")}, Packaging: {e.IncludePackaging}");
+        UpdateStatus($"Successfully inserted {insertedCount} products");
+        RhinoApp.WriteLine($"✓ Batch insert completed: {insertedCount} products");
+    }
+    
+    private Holder? ResolveHolderFromKey(Product product, string? holderKey)
+    {
+        if (string.IsNullOrEmpty(holderKey) || product.Holders == null)
+            return null;
         
-        InsertProductWithHolder(e.Product, selectedHolder, e.IncludePackaging);
+        // Parse key: "Traverse_RAL9006" -> Variant="Traverse", Color="RAL9006"
+        var parts = holderKey.Split('_', 2);
+        if (parts.Length == 2)
+        {
+            var variant = parts[0];
+            var color = parts[1];
+            
+            var holder = product.Holders.FirstOrDefault(h => 
+                h.Variant?.Equals(variant, StringComparison.OrdinalIgnoreCase) == true &&
+                h.Color?.Equals(color, StringComparison.OrdinalIgnoreCase) == true);
+            
+            if (holder != null)
+            {
+                RhinoApp.WriteLine($"✓ Found holder: Variant={holder.Variant}, Color={holder.Color}");
+            }
+            return holder;
+        }
+        else
+        {
+            // Fallback: try just variant (backward compatibility)
+            return product.Holders.FirstOrDefault(h => 
+                h.Variant?.Equals(holderKey, StringComparison.OrdinalIgnoreCase) == true);
+        }
     }
     
     private string ResolveFilePath(string path)

@@ -1,16 +1,16 @@
-# 🎉 MILESTONE: Version 1.0.0 - Oct 14, 2025
+# 🎉 MILESTONE: Version 1.1.0 - Oct 14, 2025
 
 ## ✅ Major Achievement
 
-**Bosch Media Browser Rhino Plugin is now fully functional with linked blocks, proxy mesh support, and production-ready insertion system!**
+**Bosch Media Browser Rhino Plugin now features hierarchical categories, multi-insert batch operations, comprehensive preview tabs, and collections system specification!**
 
-This is a **major milestone** marking the completion of core functionality. The plugin is now ready for daily use.
+This milestone extends v1.0.0 with advanced UI features and workflow improvements for production use.
 
 ---
 
 ## 🚀 What's Working
 
-### ✅ Core Features
+### ✅ Core Features (v1.0.0)
 
 - [x] **Product Browser** - Full DIY/PRO range browsing with categories
 - [x] **Linked Blocks** - True linked blocks using `InstanceDefinitionUpdateType.LinkedAndEmbedded`
@@ -19,6 +19,17 @@ This is a **major milestone** marking the completion of core functionality. The 
 - [x] **Multi-Insert** - Tool + Holder + Packaging in one operation
 - [x] **Material Handling** - Materials imported and preserved
 - [x] **Settings Persistence** - All settings save correctly
+
+### ✅ New in v1.1.0
+
+- [x] **Hierarchical Categories** - TreeGridView with Range > Category structure (e.g., PRO > Garden)
+- [x] **List View Scrolling** - Fixed scrolling in both grid and list views
+- [x] **Update Linked Button** - Toolbar button to run `_-BlockManager _Update _All _Enter`
+- [x] **Preview Tabs** - Modal dialog with 4 preview tabs (Mesh, Grafica, Packaging, Holder)
+- [x] **Holder Preview** - Dynamic preview updates when cycling through holder options
+- [x] **Multi-Select Mode** - Checkbox system in list view for batch operations
+- [x] **Batch Insert** - "Insert Selected (N)" button for inserting multiple products at once
+- [x] **Fixed Panel Size** - 940x725px non-resizable panel for consistent layout
 
 ### ✅ Block Naming (Fixed!)
 
@@ -166,6 +177,7 @@ rhino-plugin/
 
 - **README.md** - Main documentation with quick start
 - **PROXY_MESH_GUIDE.md** - Complete proxy mesh documentation
+- **COLLECTIONS_SPEC.md** - Collections system specification
 - **CHANGELOG.md** - Version history and changes
 
 ### For Developers
@@ -257,16 +269,26 @@ SUCCESS: Inserted GBL 18V-750 with Traverse - RAL9006
 
 ---
 
-## 📋 Next Steps (Future v1.1.0)
+## 📋 Next Steps (Future v1.2.0)
 
-### Planned Features
+### In Progress - Collections System (v1.2.0)
 
-- [ ] **Multiple selection** - Select and insert multiple products
-- [ ] **Batch insert** - Array/grid placement
-- [ ] **Custom collections** - Save favorite product combinations
+- [x] **Multi-select** - Checkbox system in list view ✅
+- [x] **Batch insert** - Insert multiple products at once ✅
+- [ ] **Metadata tracking** - Attach product info to inserted instances
+- [ ] **Create collections** - Save viewport arrangements as reusable collections
+- [ ] **Collections panel** - UI tab for managing user + public collections
+- [ ] **Insert collections** - One-click insertion of saved arrangements
+- [ ] **Export/Import** - Share collections via .bmb_collection files
+
+**See:** `docs/COLLECTIONS_SPEC.md` for complete specification
+
+### Planned Features (v1.3.0+)
+
 - [ ] **Tag filtering** - Filter by custom tags
 - [ ] **Search improvements** - Search by SKU, name, tags
 - [ ] **Recent products** - Quick access to recently inserted items
+- [ ] **Collection templates** - Pre-built collections for common layouts
 
 ### Render Integration
 
@@ -355,8 +377,10 @@ From a simple idea to a fully-functional, production-ready Rhino plugin:
 
 ---
 
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Date:** October 14, 2025  
-**Status:** ✅ PRODUCTION READY  
+**Status:** ✅ ENHANCED PRODUCTION READY  
 **Team:** Bosch Media Manager ERP Project  
 **Platform:** Rhino 8, .NET 7.0
+
+**New Features:** Hierarchical categories, multi-insert batch operations, 4-tab preview system, fixed 940x725 panel, Update Linked button

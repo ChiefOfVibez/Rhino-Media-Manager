@@ -28,11 +28,16 @@ public class ProductListView : Panel
     private int _currentPage = 1;
     private const int ITEMS_PER_PAGE = 20;
     
+    // Track selected items with their holder/packaging settings
+    private Dictionary<string, (Product product, string? holderKey, bool includePackaging)> _selectedItems = new();
+    private Button? _batchInsertButton;
+    
     public bool MultiSelectMode { get; set; }
     
     public event EventHandler<ProductCardEventArgs>? ProductSelected;
     public event EventHandler<ProductCardEventArgs>? ProductPreview;
     public event EventHandler<ProductCardEventArgs>? ProductInsert;
+    public event EventHandler<BatchInsertEventArgs>? BatchInsert;
     
     public ProductListView(ThumbnailService thumbnailService, UserDataService userDataService)
     {
@@ -80,6 +85,17 @@ public class ProductListView : Panel
         
         mainLayout.Items.Add(new StackLayoutItem(scrollable, true));
         mainLayout.Items.Add(new StackLayoutItem(_paginationPanel, false));
+        
+        // Multi-insert button (initially hidden)
+        _batchInsertButton = new Button
+        {
+            Text = "Insert Selected (0)",
+            Width = 150,
+            Visible = false
+        };
+        _batchInsertButton.Click += OnBatchInsertClicked;
+        
+        mainLayout.Items.Add(new StackLayoutItem(_batchInsertButton, HorizontalAlignment.Center));
         
         Content = mainLayout;
     }
@@ -281,6 +297,27 @@ public class ProductListView : Panel
             Visible = MultiSelectMode
         };
         
+        // Track checkbox state for batch insert
+        checkbox.CheckedChanged += (s, e) =>
+        {
+            var selectedIndex = holderDropdown.SelectedIndex;
+            var holderKey = selectedIndex > 0 && selectedIndex < holderKeys.Count 
+                ? holderKeys[selectedIndex] 
+                : null;
+            var includePackaging = packagingCheckbox.Checked == true;
+            
+            if (checkbox.Checked == true)
+            {
+                _selectedItems[product.Id] = (product, holderKey, includePackaging);
+            }
+            else
+            {
+                _selectedItems.Remove(product.Id);
+            }
+            
+            UpdateBatchInsertButton();
+        };
+        
         // Info stack (vertically centered)
         var infoStack = new StackLayout
         {
@@ -434,5 +471,51 @@ public class ProductListView : Panel
         _pageInfoLabel.Text = $"Page {_currentPage} of {totalPages}";
         _prevPageButton.Enabled = _currentPage > 1;
         _nextPageButton.Enabled = _currentPage < totalPages;
+    }
+    
+    private void UpdateBatchInsertButton()
+    {
+        if (_batchInsertButton != null)
+        {
+            _batchInsertButton.Text = $"Insert Selected ({_selectedItems.Count})";
+            _batchInsertButton.Visible = MultiSelectMode && _selectedItems.Count > 0;
+        }
+    }
+    
+    private void OnBatchInsertClicked(object? sender, EventArgs e)
+    {
+        if (_selectedItems.Count == 0) return;
+        
+        var items = _selectedItems.Values.ToList();
+        BatchInsert?.Invoke(this, new BatchInsertEventArgs(items));
+        
+        // Clear selections after insert
+        _selectedItems.Clear();
+        UpdateBatchInsertButton();
+        
+        // Refresh to uncheck all checkboxes
+        _ = RenderPage();
+    }
+    
+    /// <summary>
+    /// Clear all selections
+    /// </summary>
+    public void ClearSelections()
+    {
+        _selectedItems.Clear();
+        UpdateBatchInsertButton();
+    }
+}
+
+/// <summary>
+/// Event args for batch insert operations
+/// </summary>
+public class BatchInsertEventArgs : EventArgs
+{
+    public List<(Product product, string? holderKey, bool includePackaging)> Items { get; }
+    
+    public BatchInsertEventArgs(List<(Product product, string? holderKey, bool includePackaging)> items)
+    {
+        Items = items;
     }
 }
