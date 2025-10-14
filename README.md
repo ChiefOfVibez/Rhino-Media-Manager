@@ -1,197 +1,265 @@
-# Bosch Media Browser - Rhino Plugin
+# Rhino Media Manager
 
-A powerful media browser plugin for Rhino 8, similar to V-Ray Chaos Cosmos, designed for browsing and inserting Bosch product models into Rhino projects.
+**A comprehensive media management system for Bosch product libraries in Rhino 8.**
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Rhino](https://img.shields.io/badge/Rhino-8-green)
+![.NET](https://img.shields.io/badge/.NET-7.0-purple)
+![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)
+
+## 📦 What's Included
+
+This repository contains two main components:
+
+### 1. **Rhino Plugin** - Media Browser for Rhino 8
+Complete Rhino plugin with linked block support, proxy meshes, and intelligent holder transforms.
+
+**[📖 Plugin Documentation →](rhino-plugin/README.md)**
+
+### 2. **Web Application** - Product Database Manager
+Flask-based web interface for managing product metadata, generating JSONs, and previewing assets.
+
+**[📖 Webapp Documentation →](webapp/README.md)**
+
+---
 
 ## 🚀 Quick Start
 
-### Installation
+### Rhino Plugin
 
-1. **Run the installer:**
-   ```batch
-   Install-Plugin.bat
-   ```
-   
-2. **Restart Rhino** if it's running
+```powershell
+cd rhino-plugin
+.\scripts\Verify-And-Install.bat
+```
 
-3. **Open the panel:**
-   - Run command: `ShowMediaBrowser`
+**[Full Installation Guide →](rhino-plugin/QUICK_START.md)**
 
-For detailed instructions, see [INSTALLATION.md](INSTALLATION.md)
+### Web Application
 
-## 📋 Features
+```bash
+cd webapp
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
 
-### Browse Products
-- **Category Tree** - Navigate products by category hierarchy
-- **Advanced Filtering** - Filter by range (DIY/PRO), category, holder variants, tags
-- **Search** - Full-text search across product names, SKUs, descriptions
-- **Thumbnail Grid** - Visual product browser with pagination
-- **Detail View** - Product specs, holders, tags, preview images
+Open http://localhost:5000
 
-### Organize
-- **Favourites** - Quick access to frequently used products
-- **Collections** - Create custom product groups
-- **Tags** - Add custom tags for better organization
+## 🎯 Key Features
 
-### Insert (Coming in Phase 2)
-- Single or multiple product insertion
-- Linked file workflow
-- Grid-based layout
-- Holder variant selection
+### Rhino Plugin
 
-## 📁 Project Structure
+- ✅ **Linked Blocks** - True linked blocks that update when source files change
+- ✅ **Proxy Mesh Support** - Lightweight meshes for viewport performance (94% polygon reduction)
+- ✅ **Intelligent Transforms** - Automatic holder-based tool positioning
+- ✅ **Multi-Insert** - Tool + Holder + Packaging in one operation
+- ✅ **Material Handling** - Materials imported and preserved
+- ✅ **Clean Block Naming** - Simple, filename-based naming convention
+
+### Web Application
+
+- ✅ **Product Browser** - Visual interface for product database
+- ✅ **JSON Generation** - Automatic metadata generation
+- ✅ **Holder Management** - Configure holder variants and transforms
+- ✅ **Preview System** - 3D preview rendering
+- ✅ **Batch Operations** - Process multiple products
+- ✅ **Data Validation** - Ensures JSON integrity
+
+## 📁 Repository Structure
 
 ```
-Bosch Products DB in excel/
-├── src/                          # Source code
-│   ├── BoschMediaBrowser.Core/   # Core services & models
-│   └── BoschMediaBrowser.Rhino/  # Rhino plugin & UI
-├── tests/                        # Unit tests
-├── docs/                         # Documentation
-├── BoschMediaBrowserSpec/        # Specifications
+rhino-media-manager/
+├── rhino-plugin/              # Rhino 8 Plugin
+│   ├── src/                   # C# source code
+│   │   ├── BoschMediaBrowser.Core/      # Business logic
+│   │   └── BoschMediaBrowser.Rhino/     # UI & Rhino integration
+│   ├── scripts/               # Build & install scripts
+│   ├── docs/                  # Plugin documentation
+│   ├── tests/                 # Unit tests
+│   ├── README.md              # Plugin docs
+│   ├── CHANGELOG.md           # Version history
+│   ├── QUICK_START.md         # Quick guide
+│   └── MILESTONE_v1.0.0.md    # Milestone summary
 │
-├── INSTALLATION.md               # Installation guide
-├── UI_IMPLEMENTATION_COMPLETE.md # Current status
-├── Database Instructions.md      # Product database guide
+├── webapp/                    # Flask Web Application
+│   ├── app.py                 # Main application
+│   ├── templates/             # HTML templates
+│   ├── static/                # CSS, JS, images
+│   ├── requirements.txt       # Python dependencies
+│   └── README.md              # Webapp docs
 │
-├── Install-Plugin.bat            # Quick installer (run this)
-├── Install-Plugin.ps1            # PowerShell installer script
+├── docs/                      # Project Documentation
+│   ├── guides/                # User guides
+│   ├── fixes/                 # Bug fix documentation
+│   ├── sessions/              # Dev session summaries
+│   └── implementation/        # Technical specs
 │
-└── _archived_docs/               # Old planning/status docs
+├── _archived_docs/            # Historical documents
+├── _archived_excel_approach/  # Old Excel-based approach
+│
+├── README.md                  # This file
+├── .gitignore                 # Git ignore patterns
+├── Bosch_3D_ProductDatabase_clean.xlsm  # Excel database
+└── bosch_scanner.py           # Database scanner utility
 ```
 
 ## 🔧 Development
 
 ### Prerequisites
+
+**For Rhino Plugin:**
 - .NET 7.0 SDK
 - Rhino 8 for Windows
-- Visual Studio 2022 or JetBrains Rider
+- Visual Studio 2022 (recommended for debugging)
 
-### Building
+**For Web Application:**
+- Python 3.9+
+- Flask and dependencies
 
-```bash
-dotnet build BoschMediaBrowser.sln --configuration Release
+### Building the Plugin
+
+```powershell
+cd rhino-plugin
+dotnet clean
+dotnet build src\BoschMediaBrowser.Rhino\BoschMediaBrowser.Rhino.csproj --configuration Release
 ```
 
-### Running Tests
+Or use the automated script:
+```powershell
+cd rhino-plugin
+.\scripts\Verify-And-Install.bat
+```
+
+### Running the Webapp
 
 ```bash
-dotnet test
+cd webapp
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
 ```
 
 ## 📊 Product Database Structure
 
-Products are stored in a folder hierarchy:
+Products are organized in a hierarchical folder structure:
 
 ```
-Database Root/
-├── Tools and Holders/
-│   ├── DIY/
-│   │   ├── Garden/
-│   │   │   └── ProductName/
-│   │   │       ├── product.json          # Product metadata
-│   │   │       ├── MeshPreview.png       # Thumbnail
-│   │   │       ├── ProductName_*.3dm     # Holder files
-│   │   │       └── ...
-│   │   └── ...
-│   └── PRO/
+M:\Proiectare\__SCAN 3D Produse\__BOSCH\__NEW DB__\Tools and Holders/
+├── DIY/
+│   ├── Garden/
+│   │   └── ProductName/
+│   │       ├── ProductName.json              # Metadata
+│   │       ├── ProductName_Mesh_Tego.3dm     # Full detail mesh
+│   │       ├── ProductName_proxy_mesh.3dm    # Lightweight proxy
+│   │       ├── ProductName_packaging.3dm     # Packaging
+│   │       └── preview.png                   # Thumbnail
+│   ├── Drills/
+│   └── ...
+├── PRO/
+│   └── Garden/
+│       ├── GBL 18V-750/
+│       ├── GGP 12V-25/
 │       └── ...
-└── _public-collections/          # Hidden from categories
+├── Holders/
+│   ├── Garden/
+│   │   ├── Tego_RAL7043_BO.161.9LL8600.3dm
+│   │   ├── Traverse_RAL9006_NN.ALL.BO07803.3dm
+│   │   └── ...
+│   └── ...
+└── _public-collections/              # Hidden from categories
 ```
 
-### Product JSON Format
+**Key Files:**
+- `{Product}.json` - Product metadata with holder transforms
+- `{Product}_Mesh_{Holder}.3dm` - Full detail mesh for specific holder
+- `{Product}_proxy_mesh.3dm` - Lightweight viewport mesh (optional)
+- `{Product}_packaging.3dm` - Packaging 3D model
 
-```json
-{
-  "productName": "Product Name",
-  "sku": "SKU12345",
-  "description": "Product description",
-  "range": "DIY",
-  "category": "Garden",
-  "holders": [
-    {
-      "variant": "Variant Name",
-      "color": "Black",
-      "fileName": "ProductName_Variant.3dm",
-      "fullPath": "path/to/file.3dm"
-    }
-  ],
-  "tags": ["tag1", "tag2"]
-}
-```
+## 🎯 Status
 
-## 🎯 Current Status
+### ✅ Version 1.0.0 - Production Ready (Oct 14, 2025)
 
-**Phase 1: Complete ✅**
-- Core services implemented
-- Full UI with Eto.Forms
-- Browse, Favourites, Collections views
-- Zero compilation errors
+**Rhino Plugin:**
+- ✅ Linked blocks working perfectly
+- ✅ Proxy mesh support implemented
+- ✅ Holder transforms system complete
+- ✅ Multi-insert (tool + holder + packaging)
+- ✅ Settings persistence
+- ✅ Material handling
 
-**Phase 2: Planned**
-- Product insertion logic
-- Settings panel UI
-- Image loading & display
-- Advanced features
+**Web Application:**
+- ✅ Product browser interface
+- ✅ JSON generation
+- ✅ Holder configuration
+- ✅ Preview rendering
+- ✅ Batch operations
 
-## 📝 Configuration
+**[📖 View Full Milestone →](rhino-plugin/MILESTONE_v1.0.0.md)**
 
-User data stored in:
-```
-%APPDATA%\BoschMediaBrowser\
-├── settings.json      # User preferences
-├── userdata.json      # Favourites, tags, collections
-└── ThumbnailCache\    # Cached preview images
-```
-
-## 🐛 Troubleshooting
-
-### Plugin doesn't load
-- Check `PlugInManager` in Rhino
-- Look for error messages in Rhino's command window
-- Verify .NET 7.0 is installed
-
-### No products showing
-- Configure Base Server Path in plugin settings
-- Ensure JSON files exist in product folders
-- Click Refresh button
-
-See [INSTALLATION.md](INSTALLATION.md) for more troubleshooting tips.
+---
 
 ## 📚 Documentation
 
-- **[INSTALLATION.md](INSTALLATION.md)** - Complete installation guide
-- **[UI_IMPLEMENTATION_COMPLETE.md](UI_IMPLEMENTATION_COMPLETE.md)** - Current implementation status
-- **[Database Instructions.md](Database Instructions.md)** - Product database setup
-- **[_archived_docs/](_archived_docs/)** - Historical planning documents
+### Quick Links
 
-## 🏗️ Architecture
+- **[Rhino Plugin Docs](rhino-plugin/README.md)** - Complete plugin documentation
+- **[Quick Start Guide](rhino-plugin/QUICK_START.md)** - 3-step installation
+- **[Proxy Mesh Guide](rhino-plugin/docs/PROXY_MESH_GUIDE.md)** - Performance optimization
+- **[Changelog](rhino-plugin/CHANGELOG.md)** - Version history
 
-### Services Layer
-- **DataService** - JSON loading, category tree building
-- **SearchService** - Filtering, sorting, searching
-- **SettingsService** - User preferences
-- **UserDataService** - Favourites, tags, collections
-- **ThumbnailService** - Preview caching
+### Additional Resources
 
-### UI Layer (Eto.Forms)
-- **MediaBrowserPanel** - Main dockable panel
-- **CategoryTree** - TreeGrid navigation
-- **FiltersBar** - Multi-criteria filters
-- **ThumbnailGrid** - Paginated product view
-- **DetailPane** - Product details
-- **FavouritesView** - Favourites management
-- **CollectionsView** - Collections management
+- **[User Guides](docs/guides/)** - Installation, testing, database setup
+- **[Bug Fixes](docs/fixes/)** - Documentation of resolved issues
+- **[Dev Sessions](docs/sessions/)** - Development session summaries
+- **[Implementation Details](docs/implementation/)** - Technical specifications
+
+---
+
+## 🐛 Troubleshooting
+
+### Rhino Plugin
+
+**Plugin doesn't load:**
+- Verify installation at `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\BoschMediaBrowser\`
+- Check Rhino command window for error messages
+- Restart Rhino completely
+
+**No products showing:**
+1. Open Settings (⚙️ icon)
+2. Set database path to: `M:\...\Tools and Holders`
+3. Click "Test Connection" - should show green ✅
+4. Click Save and restart plugin
+
+**See [rhino-plugin/README.md](rhino-plugin/README.md) for more troubleshooting**
+
+---
+
+## 🔗 Related Projects
+
+- **Excel Database** - `Bosch_3D_ProductDatabase_clean.xlsm`
+- **Scanner Utility** - `bosch_scanner.py` - Scans folders and generates JSONs
+
+---
 
 ## 📄 License
 
 Internal tool for Bosch product database management.
 
-## 🤝 Support
+---
 
-For issues or questions, contact the development team.
+## 🤝 Contributing
+
+For issues, feature requests, or questions:
+1. Check existing documentation
+2. Review [CHANGELOG.md](rhino-plugin/CHANGELOG.md)
+3. Contact development team
 
 ---
 
-**Version:** 1.0.0  
-**Target:** Rhino 8 on Windows (.NET 7)  
-**Last Updated:** October 2025
+**Version:** 1.0.0 - Production Ready  
+**Platform:** Rhino 8 (Windows) + Flask (Python)  
+**Last Updated:** October 14, 2025  
+**Repository:** https://github.com/ChiefOfVibez/Rhino-Media-Manager

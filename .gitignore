@@ -1,6 +1,21 @@
-# .NET
+# ========================================
+# ONLY INCLUDE: rhino-plugin/, webapp/, and README.md
+# ========================================
+
+# Exclude everything by default
+/*
+
+# But include these directories
+!rhino-plugin/
+!webapp/
+!README.md
+!.gitignore
+
+# .NET Build outputs (within allowed folders)
 bin/
 obj/
+*.dll
+*.pdb
 *.user
 *.suo
 *.userprefs
@@ -95,3 +110,31 @@ logs/
 # Keep example product JSONs
 !examples/
 !examples/**
+
+# Exclude organization scripts (already executed)
+Organize-Project*.ps1
+Organize-Project*.bat
+
+# Exclude large database files (use Git LFS if needed)
+*.xlsm
+!Bosch_3D_ProductDatabase_clean.xlsm
+
+# Exclude DLL/RHP files in root (should only be in plugin)
+/*.dll
+/*.rhp
+
+# Windows shortcuts
+*.lnk
+
+# Backup files
+*.bak
+*.old
+*~
+
+# Large 3D files (database should be external)
+*.3dm
+!rhino-plugin/tests/**/*.3dm
+
+# Image caches
+**/ThumbnailCache/
+**/preview_cache/

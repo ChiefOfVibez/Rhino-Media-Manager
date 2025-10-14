@@ -1,0 +1,87 @@
+namespace BoschMediaBrowser.Core.Models;
+
+/// <summary>
+/// User settings and preferences
+/// </summary>
+public class Settings
+{
+    /// <summary>
+    /// Base path to product database on network
+    /// Structure: [BasePath]/Tools and Holders/DIY or PRO/[Categories]/[Products]
+    /// </summary>
+    public string BaseServerPath { get; set; } = @"M:\Proiectare\__SCAN 3D Produse\__BOSCH\__NEW DB__\Tools and Holders";
+
+    /// <summary>
+    /// Path to public collections folder
+    /// </summary>
+    public string PublicCollectionsPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default to linked insert (vs embedded)
+    /// </summary>
+    public bool LinkedInsertDefault { get; set; } = true;
+
+    /// <summary>
+    /// Default grid spacing in millimeters
+    /// </summary>
+    public double GridSpacing { get; set; } = 1200.0;
+
+    /// <summary>
+    /// Thumbnail size in pixels (128, 192, 256)
+    /// </summary>
+    public int ThumbnailSize { get; set; } = 192;
+
+    /// <summary>
+    /// Path to local thumbnail cache
+    /// </summary>
+    public string ThumbnailCachePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Last used filter state
+    /// </summary>
+    public Filters LastUsedFilters { get; set; } = new();
+    
+    /// <summary>
+    /// Insert option: Read linked blocks from the file
+    /// </summary>
+    public bool InsertReadLinkedBlocks { get; set; } = true;
+    
+    /// <summary>
+    /// Insert option: Block definition type (Linked, Embedded)
+    /// </summary>
+    public string InsertBlockType { get; set; } = "Linked";
+    
+    /// <summary>
+    /// Insert option: Layer style (Active, Reference)
+    /// </summary>
+    public string InsertLayerStyle { get; set; } = "Active";
+    
+    /// <summary>
+    /// Insert option: Insert as (BlockInstance, Group, IndividualObjects)
+    /// </summary>
+    public string InsertAs { get; set; } = "BlockInstance";
+    
+    /// <summary>
+    /// Insert option: Prompt for insertion point (vs insert at origin)
+    /// </summary>
+    public bool PromptForInsertionPoint { get; set; } = false;
+    
+    /// <summary>
+    /// Insert option: Use proxy mesh for viewport (full mesh for rendering)
+    /// </summary>
+    public bool UseProxyMesh { get; set; } = false;
+}
+
+/// <summary>
+/// Filter state for product browsing
+/// </summary>
+public class Filters
+{
+    public string SearchText { get; set; } = string.Empty;
+    public List<string> Ranges { get; set; } = new();
+    public List<string> Categories { get; set; } = new();
+    public List<string> HolderVariants { get; set; } = new();
+    public List<string> TagsInclude { get; set; } = new();
+    public string SortBy { get; set; } = "Name";
+    public string SortDir { get; set; } = "asc";
+}

@@ -1,6 +1,7 @@
 fastapi>=0.110.0
 uvicorn[standard]
 pydantic
-rhino3dm
-python-multipart>=0.0.9
+python-multipart
 pillow>=10.3.0
+# Optional: For proper 3DM preview extraction (falls back to binary search if not installed)
+rhino3dm

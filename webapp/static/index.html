@@ -170,10 +170,7 @@
                         <span x-show="!scanning">🔄 Scan Database</span>
                         <span x-show="scanning" x-cloak>⏳ Scanning...</span>
                     </button>
-                    <button @click="extractPreviews()" class="btn-secondary">
-                        <span x-show="!extracting">🖼️ Extract Previews</span>
-                        <span x-show="extracting" x-cloak>⏳ Extracting...</span>
-                    </button>
+                    <!-- Extract Previews button removed - use Rhino ViewCaptureToFile instead -->
                     <button @click="forceRefresh()" class="btn-primary" :disabled="loading">
                         <span x-show="!loading">🔃 Refresh</span>
                         <span x-show="loading" x-cloak>⏳ Loading...</span>
@@ -336,12 +333,7 @@
                         <span x-show="!bulkProcessing">🤖 Bulk Auto-Populate</span>
                         <span x-show="bulkProcessing">⏳ Processing...</span>
                     </button>
-                    <button @click="bulkExtractPreviews()" 
-                            :disabled="bulkProcessing"
-                            class="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
-                        <span x-show="!bulkProcessing">🖼️ Bulk Extract Previews</span>
-                        <span x-show="bulkProcessing">⏳ Processing...</span>
-                    </button>
+                    <!-- Bulk Extract Previews removed - use Rhino ViewCaptureToFile instead -->
                 </div>
             </div>
         </div>
@@ -944,6 +936,135 @@
                                     </template>
                                 </div>
                             </section>
+                            
+                            <!-- Holder Transforms Section -->
+                            <section x-show="editingProduct?.holders?.length > 0" x-cloak class="mt-6">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+                                    📐 Holder Transforms
+                                    <span class="ml-2 px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">Storage-Saving Strategy</span>
+                                </h3>
+                                
+                                <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4 text-sm">
+                                    <strong class="text-purple-900">Transform Strategy:</strong>
+                                    <span class="text-purple-800">Define position/rotation/scale for each holder relative to a reference mesh.</span>
+                                    <ul class="text-xs text-purple-700 mt-2 space-y-1 ml-4 list-disc">
+                                        <li>ONE mesh file per product (saves ~30MB per product!)</li>
+                                        <li>Transforms stored in JSON (easy to edit)</li>
+                                        <li>Fallback to file naming if not defined</li>
+                                    </ul>
+                                </div>
+                                
+                                <!-- Reference Holder -->
+                                <div class="bg-white border border-gray-300 rounded-lg p-4 mb-4">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Reference Holder <span class="text-xs text-gray-500">(Zero position)</span>
+                                    </label>
+                                    <select x-model="editingProduct.referenceHolder" 
+                                            @change="checkDirty(); ensureReferenceTransform()"
+                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500">
+                                        <option value="">-- Select Reference --</option>
+                                        <template x-for="variant in getUniqueHolderVariants()" :key="variant">
+                                            <option :value="variant" x-text="variant"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                
+                                <!-- Transform Editors (one per variant, not per color) -->
+                                <div class="space-y-3">
+                                    <template x-for="variant in getUniqueHolderVariants()" :key="variant">
+                                        <div class="border rounded-lg overflow-hidden"
+                                             :class="editingProduct.referenceHolder === variant ? 'border-purple-500 border-2' : 'border-gray-300'">
+                                            <div class="px-4 py-2 flex items-center justify-between"
+                                                 :class="editingProduct.referenceHolder === variant ? 'bg-purple-600 text-white' : 'bg-gray-100'">
+                                                <span class="font-semibold" x-text="variant"></span>
+                                                <span x-show="editingProduct.referenceHolder === variant" 
+                                                      class="text-xs px-2 py-1 bg-white text-purple-600 rounded font-medium">Reference</span>
+                                            </div>
+                                            <div class="p-4 bg-white grid grid-cols-3 gap-4">
+                                                <!-- Translation -->
+                                                <div>
+                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Translation (mm)</label>
+                                                    <div class="space-y-1">
+                                                        <input type="number" step="0.1" placeholder="X"
+                                                               :value="getTransformValue(variant, 'translation', 0)"
+                                                               @input="setTransformValue(variant, 'translation', 0, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="0.1" placeholder="Y"
+                                                               :value="getTransformValue(variant, 'translation', 1)"
+                                                               @input="setTransformValue(variant, 'translation', 1, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="0.1" placeholder="Z"
+                                                               :value="getTransformValue(variant, 'translation', 2)"
+                                                               @input="setTransformValue(variant, 'translation', 2, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                    </div>
+                                                </div>
+                                                <!-- Rotation -->
+                                                <div>
+                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Rotation (deg)</label>
+                                                    <div class="space-y-1">
+                                                        <input type="number" step="1" placeholder="X"
+                                                               :value="getTransformValue(variant, 'rotation', 0)"
+                                                               @input="setTransformValue(variant, 'rotation', 0, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="1" placeholder="Y"
+                                                               :value="getTransformValue(variant, 'rotation', 1)"
+                                                               @input="setTransformValue(variant, 'rotation', 1, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="1" placeholder="Z"
+                                                               :value="getTransformValue(variant, 'rotation', 2)"
+                                                               @input="setTransformValue(variant, 'rotation', 2, parseFloat($event.target.value) || 0)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                    </div>
+                                                </div>
+                                                <!-- Scale -->
+                                                <div>
+                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Scale</label>
+                                                    <div class="space-y-1">
+                                                        <input type="number" step="0.01" placeholder="X"
+                                                               :value="getTransformValue(variant, 'scale', 0)"
+                                                               @input="setTransformValue(variant, 'scale', 0, parseFloat($event.target.value) || 1)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="0.01" placeholder="Y"
+                                                               :value="getTransformValue(variant, 'scale', 1)"
+                                                               @input="setTransformValue(variant, 'scale', 1, parseFloat($event.target.value) || 1)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                        <input type="number" step="0.01" placeholder="Z"
+                                                               :value="getTransformValue(variant, 'scale', 2)"
+                                                               @input="setTransformValue(variant, 'scale', 2, parseFloat($event.target.value) || 1)"
+                                                               :readonly="editingProduct.referenceHolder === variant"
+                                                               class="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                                               :class="editingProduct.referenceHolder === variant ? 'bg-gray-100' : ''">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- Notes -->
+                                            <div class="px-4 pb-3 bg-white">
+                                                <input type="text" placeholder="Notes..."
+                                                       :value="getTransformNotes(variant)"
+                                                       @input="setTransformNotes(variant, $event.target.value)"
+                                                       class="w-full border border-gray-300 rounded px-2 py-1 text-sm">
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -964,11 +1085,8 @@
                         </span>
                     </div>
                     <div class="flex gap-3">
-                        <button @click="closeEditModal()" class="btn-secondary">
-                            Cancel
-                        </button>
-                        <button @click="saveProduct()" class="btn-primary" :disabled="!isDirty">
-                            💾 Save Changes
+                        <button @click="closeEditModal()" class="btn-primary">
+                            ✓ Done
                         </button>
                     </div>
                 </div>
@@ -1733,6 +1851,9 @@
                         this.editingProduct.packaging = {};
                     }
                     
+                    // Initialize transforms for holders
+                    this.ensureTransforms();
+                    
                     // Set default holder selection to first holder
                     if (this.editingProduct.holders.length > 0) {
                         this.selectedVariant = this.editingProduct.holders[0].variant;
@@ -1741,11 +1862,16 @@
                     }
                 },
 
-                closeEditModal() {
-                    // Check for unsaved changes
+                async closeEditModal() {
+                    // Auto-save if there are unsaved changes
                     if (this.isDirty) {
-                        if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
-                            return;
+                        try {
+                            await this.saveProduct(true); // silent save
+                        } catch (error) {
+                            console.error('Error auto-saving:', error);
+                            if (!confirm('Failed to save changes. Close anyway?')) {
+                                return;
+                            }
                         }
                     }
                     
@@ -1813,12 +1939,12 @@
                 },
                 
                 // Save product
-                async saveProduct() {
+                async saveProduct(silent = false) {
                     try {
                         // Check for file renames needed
                         const renames = this.detectHolderRenames();
                         
-                        if (renames.length > 0) {
+                        if (renames.length > 0 && !silent) {
                             const confirmed = this.confirmRenames(renames);
                             if (!confirmed) return;
                             
@@ -1840,17 +1966,25 @@
                             await this.refreshProducts();
                             this.isDirty = false;
                             this.originalProduct = JSON.parse(JSON.stringify(this.editingProduct));
-                            if (renames.length > 0) {
-                                window.toast.success('Product Saved', `Successfully saved! Renamed ${renames.length} file(s).`);
-                            } else {
-                                window.toast.success('Product Saved', 'All changes saved successfully!');
+                            if (!silent) {
+                                if (renames.length > 0) {
+                                    window.toast.success('Product Saved', `Successfully saved! Renamed ${renames.length} file(s).`);
+                                } else {
+                                    window.toast.success('Product Saved', 'All changes saved successfully!');
+                                }
                             }
                         } else {
-                            window.toast.error('Save Failed', 'Failed to save product');
+                            if (!silent) {
+                                window.toast.error('Save Failed', 'Failed to save product');
+                            }
+                            throw new Error('Save failed');
                         }
                     } catch (error) {
                         console.error('Error saving:', error);
-                        window.toast.error('Save Failed', 'Failed to save product');
+                        if (!silent) {
+                            window.toast.error('Save Failed', 'Failed to save product');
+                        }
+                        throw error;
                     }
                 },
                 
@@ -2001,14 +2135,11 @@
                     const path = this.getPreviewPath(product, previewType);
                     if (!path) return '';
                     
-                    // Convert to API endpoint
-                    // Extract range, category, productName from path
-                    const parts = path.split('\\');
-                    const productName = product.productName;
-                    const fileName = path.substring(path.lastIndexOf('\\') + 1);
+                    // Extract filename from path (handle both \ and /)
+                    const fileName = path.split(/[\\/]/).pop();
                     
                     // Use API endpoint for serving images
-                    return `/api/preview/${product.range}/${product.category}/${productName}/${fileName}`;
+                    return `/api/preview/${encodeURIComponent(product.range)}/${encodeURIComponent(product.category)}/${encodeURIComponent(product.productName)}/${encodeURIComponent(fileName)}`;
                 },
 
                 getHolderPreviewUrl(previewPath) {
@@ -2022,8 +2153,8 @@
                     // Extract filename from full path (handle both \ and /)
                     const fileName = previewPath.split(/[\\\/]/).pop();
                     
-                    // Use API endpoint
-                    return `/api/holder-preview/${fileName}`;
+                    // Use API endpoint with proper encoding
+                    return `/api/holder-preview/${encodeURIComponent(fileName)}`;
                 },
 
                 showImagePreview(imagePath) {
@@ -2330,6 +2461,91 @@
                     } catch (error) {
                         console.error('Error creating product:', error);
                         window.toast.error('Creation Failed', error.message);
+                    }
+                },
+
+                // Get unique holder variants (not per color)
+                getUniqueHolderVariants() {
+                    if (!this.editingProduct || !this.editingProduct.holders) return [];
+                    const variants = new Set();
+                    this.editingProduct.holders.forEach(h => {
+                        if (h.variant) variants.add(h.variant);
+                    });
+                    return Array.from(variants);
+                },
+                
+                // Transform management functions
+                ensureTransforms() {
+                    if (!this.editingProduct) return;
+                    
+                    if (!this.editingProduct.holderTransforms) {
+                        this.editingProduct.holderTransforms = {};
+                    }
+                    
+                    // Ensure each UNIQUE holder variant has a transform entry
+                    const variants = this.getUniqueHolderVariants();
+                    variants.forEach(variant => {
+                        if (!this.editingProduct.holderTransforms[variant]) {
+                            const isReference = variant === this.editingProduct.referenceHolder;
+                            this.editingProduct.holderTransforms[variant] = {
+                                translation: [0, 0, 0],
+                                rotation: [0, 0, 0],
+                                scale: [1, 1, 1],
+                                notes: isReference ? "Reference position" : ""
+                            };
+                        }
+                    });
+                },
+
+                ensureReferenceTransform() {
+                    this.ensureTransforms();
+                    const refHolder = this.editingProduct.referenceHolder;
+                    if (refHolder && this.editingProduct.holderTransforms[refHolder]) {
+                        // Force reference to be zero
+                        this.editingProduct.holderTransforms[refHolder] = {
+                            translation: [0, 0, 0],
+                            rotation: [0, 0, 0],
+                            scale: [1, 1, 1],
+                            notes: "Reference position"
+                        };
+                        this.checkDirty();
+                    }
+                },
+
+                getTransformValue(holderVariant, property, index) {
+                    if (!this.editingProduct || !this.editingProduct.holderTransforms) {
+                        return property === 'scale' ? 1 : 0;
+                    }
+                    const transform = this.editingProduct.holderTransforms[holderVariant];
+                    if (!transform || !transform[property] || transform[property][index] === undefined) {
+                        return property === 'scale' ? 1 : 0;
+                    }
+                    return transform[property][index];
+                },
+
+                setTransformValue(holderVariant, property, index, value) {
+                    this.ensureTransforms();
+                    if (!this.editingProduct.holderTransforms[holderVariant]) return;
+                    
+                    if (!this.editingProduct.holderTransforms[holderVariant][property]) {
+                        this.editingProduct.holderTransforms[holderVariant][property] = [0, 0, 0];
+                    }
+                    
+                    this.editingProduct.holderTransforms[holderVariant][property][index] = value;
+                    this.checkDirty();
+                },
+
+                getTransformNotes(holderVariant) {
+                    if (!this.editingProduct || !this.editingProduct.holderTransforms) return '';
+                    const transform = this.editingProduct.holderTransforms[holderVariant];
+                    return transform?.notes || '';
+                },
+
+                setTransformNotes(holderVariant, notes) {
+                    this.ensureTransforms();
+                    if (this.editingProduct.holderTransforms[holderVariant]) {
+                        this.editingProduct.holderTransforms[holderVariant].notes = notes;
+                        this.checkDirty();
                     }
                 }
             }

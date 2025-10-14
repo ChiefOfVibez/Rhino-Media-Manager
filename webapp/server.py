@@ -76,6 +76,8 @@ class HolderInfo(BaseModel):
 
 class ProductComplete(ProductBase):
     holders: List[HolderInfo] = []
+    holderTransforms: Optional[Dict[str, Any]] = None  # Use Any to avoid validation issues
+    referenceHolder: Optional[str] = None
     previews: dict = {}
     packaging: dict = {}
     metadata: dict = {}
@@ -199,20 +201,78 @@ async def create_product(request: NewProductRequest):
     if existing_json:
         raise HTTPException(status_code=400, detail="Product JSON already exists in this folder")
     
+    # Auto-extract range and category from path if not provided
+    extracted_range = request.range
+    extracted_category = request.category
+    
+    try:
+        path_parts = folder_path.parts
+        tools_idx = next(i for i, part in enumerate(path_parts) if part == 'Tools and Holders')
+        if tools_idx + 2 < len(path_parts):
+            if not extracted_range:
+                extracted_range = path_parts[tools_idx + 1]  # DIY or PRO
+            if not extracted_category:
+                extracted_category = path_parts[tools_idx + 2]  # Drills, Garden, etc.
+    except (StopIteration, IndexError):
+        pass
+    
+    # Convert holder strings to proper objects
+    holder_objects = []
+    for holder_str in request.holders:
+        # Skip empty strings
+        if not holder_str or not holder_str.strip():
+            continue
+            
+        holder_str = holder_str.strip()
+        
+        # Parse holder filename: Variant_Color_CodArticol.3dm
+        holder_name = holder_str.replace('.3dm', '').replace('.3DM', '')
+        parts = holder_name.split('_')
+        
+        if len(parts) >= 3:
+            holder_objects.append({
+                "variant": parts[0],
+                "color": parts[1],
+                "codArticol": '_'.join(parts[2:]),  # Join remaining parts
+                "fileName": holder_str if holder_str.lower().endswith('.3dm') else f"{holder_str}.3dm",
+                "fullPath": "",  # Will be populated by autopop
+                "preview": ""
+            })
+        elif len(parts) == 2:
+            # Variant_Color format
+            holder_objects.append({
+                "variant": parts[0],
+                "color": parts[1],
+                "codArticol": "",
+                "fileName": holder_str if holder_str.lower().endswith('.3dm') else f"{holder_str}.3dm",
+                "fullPath": "",
+                "preview": ""
+            })
+        else:
+            # Fallback: just variant name
+            holder_objects.append({
+                "variant": holder_name,
+                "color": "",
+                "codArticol": "",
+                "fileName": holder_str if holder_str.lower().endswith('.3dm') else f"{holder_str}.3dm",
+                "fullPath": "",
+                "preview": ""
+            })
+    
     # Create minimal JSON with all fields
     minimal_json = {
         "productName": product_name,
         "description": request.description,
         "sku": request.sku,
         "codArticol": request.codArticol,
-        "range": request.range,
-        "category": request.category,
+        "range": extracted_range,
+        "category": extracted_category,
         "subcategory": request.subcategory,
         "tags": request.tags,
         "notes": request.notes,
         "previews": {},
         "packaging": request.packaging if request.packaging else {},
-        "holders": request.holders,
+        "holders": holder_objects,  # Use parsed objects instead of strings
         "metadata": {
             "createdDate": json.dumps(None),  # Will be set by autopop
             "lastModified": json.dumps(None)
@@ -257,8 +317,8 @@ async def auto_populate_product(product_name: str, request: Request):
                 if product_folder.name == product_name and product_folder.is_dir():
                     json_files = list(product_folder.glob("*.json"))
                     if json_files:
-                        # Run auto-population
-                        success = autopop_product_json(json_files[0])
+                        # Run auto-population - pass FOLDER not JSON file
+                        success = autopop_product_json(product_folder)
                         if success:
                             # Log the action
                             log_action("auto_populate", product_name, client_ip, user_agent, 
@@ -521,23 +581,46 @@ async def extract_previews(request: Request):
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")
         
-        # Extract previews from Holders folder
-        holders_path = TOOLS_PATH / "Holders"
-        count = batch_extract_previews(holders_path, recursive=True, overwrite=False)
+        # Check if specific products were requested
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+        product_names = body.get("productNames", [])
+        
+        total_count = 0
+        
+        if product_names:
+            # Extract previews for specific products
+            for product_name in product_names:
+                for range_folder in TOOLS_PATH.iterdir():
+                    if not range_folder.is_dir() or range_folder.name.startswith('_'):
+                        continue
+                    
+                    for category_folder in range_folder.iterdir():
+                        if not category_folder.is_dir() or category_folder.name.startswith('_'):
+                            continue
+                        
+                        product_folder = category_folder / product_name
+                        if product_folder.exists() and product_folder.is_dir():
+                            count = batch_extract_previews(product_folder, recursive=False, overwrite=False)
+                            total_count += count
+                            break
+        else:
+            # Extract from all products and holders
+            count = batch_extract_previews(TOOLS_PATH, recursive=True, overwrite=False)
+            total_count = count
         
         # Log the action
         log_action("extract_previews", None, client_ip, user_agent, 
-                 {"extracted_count": count, "folder": str(holders_path)})
+                 {"extracted_count": total_count, "product_names": product_names or "all"})
         
         return {
-            "success": True,
-            "extracted": count,
-            "message": f"Extracted {count} preview images"
+            "success": total_count,
+            "extracted": total_count,
+            "message": f"Extracted {total_count} preview images"
         }
-    except ImportError:
+    except ImportError as e:
         raise HTTPException(
             status_code=501, 
-            detail="Preview extraction not available. Install: pip install rhino3dm Pillow"
+            detail=f"Preview extraction not available: {str(e)}. PIL (Pillow) is required for BMP conversion."
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
