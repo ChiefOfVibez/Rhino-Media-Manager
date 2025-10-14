@@ -44,6 +44,66 @@ def autopop_product_json(product_folder: Path, force: bool = False) -> Dict:
     print(f"📝 Auto-populating: {product_name}")
     changes = []
     
+    # === CRITICAL: ENSURE REQUIRED FIELDS ===
+    # Product model requires these fields to be present and non-null
+    
+    # 1. productName - REQUIRED
+    if not data.get('productName'):
+        data['productName'] = product_name
+        changes.append(f"✓ FIXED: Added missing productName field")
+    
+    # 2. description - REQUIRED (can be empty string)
+    if 'description' not in data:
+        data['description'] = ""
+        changes.append(f"✓ FIXED: Added missing description field")
+    
+    # 3. range - REQUIRED
+    if not data.get('range'):
+        data['range'] = ""
+        changes.append(f"⚠️  WARNING: range field empty (will be set from folder path)")
+    
+    # 4. category - REQUIRED
+    if not data.get('category'):
+        data['category'] = ""
+        changes.append(f"⚠️  WARNING: category field empty (will be set from folder path)")
+    
+    # 5. tags - REQUIRED (can be empty list)
+    if 'tags' not in data:
+        data['tags'] = []
+        changes.append(f"✓ FIXED: Added missing tags field")
+    
+    # 6. holders - REQUIRED (can be empty list)
+    if 'holders' not in data:
+        data['holders'] = []
+        changes.append(f"✓ FIXED: Added missing holders field")
+    
+    # 7. Fix malformed holders (strings instead of objects)
+    if isinstance(data.get('holders'), list):
+        fixed_holders = []
+        for i, holder in enumerate(data['holders']):
+            if isinstance(holder, str):
+                # Parse string format: "Variant_Color_Code"
+                parts = holder.split('_')
+                if len(parts) >= 3:
+                    fixed_holder = {
+                        "variant": parts[0],
+                        "color": parts[1],
+                        "codArticol": '_'.join(parts[2:]),
+                        "fileName": f"{holder}.3dm",
+                        "fullPath": "",
+                        "preview": ""
+                    }
+                    fixed_holders.append(fixed_holder)
+                    changes.append(f"✓ FIXED: Converted holder string to object: {holder}")
+                else:
+                    changes.append(f"⚠️  WARNING: Malformed holder string: {holder}")
+            elif isinstance(holder, dict):
+                fixed_holders.append(holder)
+        
+        if len(fixed_holders) != len(data['holders']):
+            data['holders'] = fixed_holders
+            changes.append(f"✓ FIXED: Replaced {len(data['holders']) - len(fixed_holders)} invalid holders")
+    
     # === AUTO-EXTRACT RANGE AND CATEGORY FROM FOLDER PATH ===
     # Path structure: ...\\Tools and Holders\\{RANGE}\\{CATEGORY}\\{ProductName}
     try:
@@ -206,13 +266,26 @@ def autopop_product_json(product_folder: Path, force: bool = False) -> Dict:
                 
                 holder_filename = holder.get('fileName', f"{variant}_{color}_{cod}.3dm")
                 
+                # Try multiple filename variations (handle double .3dm extension)
+                filename_variations = [
+                    holder_filename,                    # Normal: variant_color_code.3dm
+                    f"{holder_filename}.3dm",          # Double extension: variant_color_code.3dm.3dm
+                    holder_filename.replace('.3dm', '') + '.3dm'  # Clean and add single .3dm
+                ]
+                
                 for search_path in search_paths:
                     if search_path.exists():
-                        holder_file = search_path / holder_filename
-                        if holder_file.exists():
-                            # Always use forward slashes for consistency
-                            holder['fullPath'] = str(holder_file).replace('\\', '/')
-                            changes.append(f"✓ Found holder file: {variant} - {color} at {search_path.name}/")
+                        found = False
+                        for filename_var in filename_variations:
+                            holder_file = search_path / filename_var
+                            if holder_file.exists():
+                                # Update both filename and fullPath
+                                holder['fileName'] = filename_var
+                                holder['fullPath'] = str(holder_file).replace('\\', '/')
+                                changes.append(f"✓ Found holder file: {variant} - {color} at {search_path.name}/")
+                                found = True
+                                break
+                        if found:
                             break
             
             # === Find holder preview ===
@@ -286,6 +359,17 @@ def autopop_product_json(product_folder: Path, force: bool = False) -> Dict:
         data['metadata'] = {}
     
     metadata = data['metadata']
+    
+    # Fix invalid date strings (e.g., "null" as a string)
+    if 'createdDate' in metadata:
+        if metadata['createdDate'] == "null" or metadata['createdDate'] == "":
+            metadata['createdDate'] = None
+            changes.append(f"✓ FIXED: Converted invalid createdDate string 'null' to null")
+    
+    if 'lastModified' in metadata:
+        if metadata['lastModified'] == "null" or metadata['lastModified'] == "":
+            metadata['lastModified'] = datetime.now().isoformat()
+            changes.append(f"✓ FIXED: Replaced invalid lastModified with current timestamp")
     
     if not metadata.get('lastModified'):
         metadata['lastModified'] = datetime.now().isoformat()

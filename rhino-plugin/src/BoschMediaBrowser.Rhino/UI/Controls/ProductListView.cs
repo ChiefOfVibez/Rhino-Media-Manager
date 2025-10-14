@@ -67,27 +67,21 @@ public class ProductListView : Panel
             Spacing = 0 // No spacing - items have their own borders
         };
         
+        _paginationPanel = CreatePaginationPanel();
+        
+        // Create scrollable wrapper for list container
         var scrollable = new Scrollable
         {
             Content = _listContainer,
-            Border = BorderType.None
+            Border = BorderType.None,
+            ExpandContentHeight = false,
+            ExpandContentWidth = true
         };
-        
-        _paginationPanel = CreatePaginationPanel();
         
         mainLayout.Items.Add(new StackLayoutItem(scrollable, true));
         mainLayout.Items.Add(new StackLayoutItem(_paginationPanel, false));
         
-        var overlayLayout = new TableLayout
-        {
-            Rows =
-            {
-                new TableRow(new TableCell(mainLayout, true)),
-                new TableRow(new TableCell(_emptyStateLabel, true)) { ScaleHeight = true }
-            }
-        };
-        
-        Content = overlayLayout;
+        Content = mainLayout;
     }
     
     private Panel CreatePaginationPanel()

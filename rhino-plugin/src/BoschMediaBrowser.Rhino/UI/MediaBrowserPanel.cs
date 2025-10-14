@@ -32,6 +32,7 @@ public class MediaBrowserPanel : Panel
     private Button? _settingsButton;
     private Button? _viewModeButton;
     private Button? _multiSelectButton;
+    private Button? _updateLinkedButton;
     
     // Rich UI Components
     private CategoryList? _categoryList;
@@ -414,6 +415,13 @@ public class MediaBrowserPanel : Panel
         };
         _multiSelectButton.Click += OnMultiSelectToggled;
         
+        _updateLinkedButton = new Button 
+        { 
+            Text = "🔗 Update Linked",
+            ToolTip = "Update all linked blocks from source files"
+        };
+        _updateLinkedButton.Click += OnUpdateLinkedClicked;
+        
         _refreshButton = new Button { Text = "⟳ Refresh" };
         _refreshButton.Click += OnRefreshClicked;
         
@@ -430,6 +438,7 @@ public class MediaBrowserPanel : Panel
                 new StackLayoutItem(_searchBox, true),
                 _viewModeButton,
                 _multiSelectButton,
+                _updateLinkedButton,
                 _refreshButton,
                 _settingsButton
             }
@@ -724,8 +733,8 @@ public class MediaBrowserPanel : Panel
             UpdateStatus("Loading products...");
             LogToFile("InitializeAsync: Creating DataService...");
 
-            // Initialize DataService with base path from settings
-            _dataService = new DataService(settings.BaseServerPath);
+            // Initialize DataService with base path from settings and logger for debugging
+            _dataService = new DataService(settings.BaseServerPath, RhinoApp.WriteLine);
             LogToFile("InitializeAsync: DataService created");
 
             // Load products
@@ -1154,7 +1163,7 @@ public class MediaBrowserPanel : Panel
             int defIndex = existingDef != null ? existingDef.Index : -1;
             if (defIndex < 0)
             {
-                // Read the 3DM file and create instance definition
+                // Always read file and create embedded block first
                 var geometry = new List<global::Rhino.Geometry.GeometryBase>();
                 var attributes = new List<global::Rhino.DocObjects.ObjectAttributes>();
                 
@@ -1207,17 +1216,18 @@ public class MediaBrowserPanel : Panel
                     // Create instance definition from geometry
                     if (geometry.Count > 0)
                     {
-                        // Create embedded block definition
                         defIndex = instanceDefs.Add(defName, string.Empty, global::Rhino.Geometry.Point3d.Origin, geometry, attributes);
                         RhinoApp.WriteLine($"✓ Created instance definition '{defName}' with {geometry.Count} objects");
                         
-                        // Make it a linked block if user selected "Linked" in settings
-                        if (settings?.InsertBlockType == "Linked")
+                        // Check if user wants linked blocks
+                        var isLinked = settings?.InsertBlockType == "Linked";
+                        if (isLinked)
                         {
                             try
                             {
                                 // Convert to linked block by setting source archive
-                                var updateType = global::Rhino.DocObjects.InstanceDefinitionUpdateType.LinkedAndEmbedded;
+                                // Use Linked (not LinkedAndEmbedded) to create true linked block
+                                var updateType = global::Rhino.DocObjects.InstanceDefinitionUpdateType.Linked;
                                 bool success = instanceDefs.ModifySourceArchive(defIndex, file3dmPath, updateType, quiet: true);
                                 if (success)
                                 {
@@ -1225,7 +1235,7 @@ public class MediaBrowserPanel : Panel
                                 }
                                 else
                                 {
-                                    RhinoApp.WriteLine($"  ⚠ Failed to link block to source file");
+                                    RhinoApp.WriteLine($"  ⚠ Failed to link block to source file, will remain embedded");
                                 }
                             }
                             catch (Exception linkEx)
@@ -1233,10 +1243,24 @@ public class MediaBrowserPanel : Panel
                                 RhinoApp.WriteLine($"  ⚠ Link block error: {linkEx.Message}");
                             }
                         }
+                        else
+                        {
+                            RhinoApp.WriteLine($"  Block type: EMBEDDED (geometry stored in document)");
+                        }
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine($"✗ ERROR: No geometry found in file");
+                        return;
                     }
                     
                     // Now safe to dispose
                     file.Dispose();
+                }
+                else
+                {
+                    RhinoApp.WriteLine($"✗ ERROR: Failed to read 3dm file");
+                    return;
                 }
             }
             
@@ -2001,6 +2025,37 @@ public class MediaBrowserPanel : Panel
         }
         
         UpdateStatus(_multiSelectMode ? "Multi-select mode enabled - Select products for batch operations" : "Multi-select mode disabled");
+    }
+
+    private void OnUpdateLinkedClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_updateLinkedButton != null)
+            {
+                _updateLinkedButton.Enabled = false;
+                _updateLinkedButton.Text = "Updating...";
+            }
+
+            UpdateStatus("Updating all linked blocks...");
+            
+            // Run the BlockManager update command
+            RhinoApp.RunScript("_-BlockManager _Update _All _Enter", false);
+            
+            UpdateStatus("All linked blocks updated successfully");
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus($"Error updating blocks: {ex.Message}");
+        }
+        finally
+        {
+            if (_updateLinkedButton != null)
+            {
+                _updateLinkedButton.Enabled = true;
+                _updateLinkedButton.Text = "🔗 Update Linked";
+            }
+        }
     }
 
     private async void OnRefreshClicked(object? sender, EventArgs e)

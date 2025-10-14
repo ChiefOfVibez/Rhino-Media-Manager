@@ -66,10 +66,6 @@ public class Settings
     /// </summary>
     public bool PromptForInsertionPoint { get; set; } = false;
     
-    /// <summary>
-    /// Insert option: Use proxy mesh for viewport (full mesh for rendering)
-    /// </summary>
-    public bool UseProxyMesh { get; set; } = false;
 }
 
 /// <summary>

@@ -85,30 +85,16 @@ namespace BoschMediaBrowser.Rhino.UI.Controls
                 Spacing = 20
             };
             
-            var scrollable = new Scrollable
-            {
-                Content = _gridContainer,
-                Border = BorderType.None
-            };
-            
             // Pagination controls
             _paginationPanel = CreatePaginationPanel();
             
-            // Add scrollable grid and pagination to main layout
-            mainLayout.Items.Add(new StackLayoutItem(scrollable, true)); // Scrollable grid takes available space
+            // Add grid and pagination to main layout
+            mainLayout.Items.Add(new StackLayoutItem(_gridContainer, true)); // Grid takes available space
             mainLayout.Items.Add(new StackLayoutItem(_paginationPanel, false)); // Pagination at bottom
             
-            // Use TableLayout to overlay empty state
-            var overlayLayout = new TableLayout
-            {
-                Spacing = new Size(0, 0),
-                Rows =
-                {
-                    new TableRow(mainLayout) { ScaleHeight = true }
-                }
-            };
-            
-            Content = overlayLayout;
+            // This control is already a Scrollable, so set mainLayout as content
+            Content = mainLayout;
+            Border = BorderType.None;
         }
         
         private void OnSizeChanged(object? sender, EventArgs e)

@@ -157,10 +157,10 @@ public class Packaging
 {
     public string? FileName { get; set; }
     public string? FullPath { get; set; }
-    public double Length { get; set; }
-    public double Width { get; set; }
-    public double Height { get; set; }
-    public double Weight { get; set; }
+    public double? Length { get; set; }
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? Weight { get; set; }
     public string? Preview { get; set; }
     public string? PreviewPath { get; set; }
 }
@@ -170,6 +170,16 @@ public class Packaging
 /// </summary>
 public class PreviewRefs
 {
+    /// <summary>
+    /// Primary product preview image filename (for backwards compatibility)
+    /// </summary>
+    public string? Product { get; set; }
+    
+    /// <summary>
+    /// Alternate product preview image filename (for backwards compatibility)
+    /// </summary>
+    public string? ProductAlternate { get; set; }
+    
     public PreviewImage? Mesh3d { get; set; }
     public PreviewImage? MeshPreview { get; set; }
     public PreviewImage? Grafica3d { get; set; }

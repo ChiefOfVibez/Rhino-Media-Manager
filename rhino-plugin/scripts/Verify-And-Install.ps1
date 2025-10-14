@@ -4,12 +4,19 @@
 Write-Host "=== Bosch Media Browser - Rebuild & Install ===" -ForegroundColor Cyan
 Write-Host ""
 
+# Get script directory and navigate to rhino-plugin root
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$rhinoPluginRoot = Split-Path -Parent $scriptDir
+Write-Host "Plugin root: $rhinoPluginRoot" -ForegroundColor Gray
+Set-Location $rhinoPluginRoot
+Write-Host ""
+
 # Step 1: Rebuild the plugin
 Write-Host "=== Step 1: Rebuilding Plugin ===" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "Running dotnet clean..." -ForegroundColor Gray
-dotnet clean
+dotnet clean BoschMediaBrowser.sln
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: dotnet clean failed!" -ForegroundColor Red
     exit 1

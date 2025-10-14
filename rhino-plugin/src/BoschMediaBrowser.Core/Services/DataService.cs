@@ -13,10 +13,18 @@ public class DataService
     private List<Product> _cachedProducts = new();
     private DateTime _lastLoadTime = DateTime.MinValue;
     private FileSystemWatcher? _watcher;
+    private Action<string>? _logger;
 
-    public DataService(string basePath)
+    public DataService(string basePath, Action<string>? logger = null)
     {
         _basePath = basePath;
+        _logger = logger;
+    }
+    
+    private void Log(string message)
+    {
+        _logger?.Invoke(message);
+        System.Diagnostics.Debug.WriteLine(message);
     }
 
     /// <summary>
@@ -51,14 +59,14 @@ public class DataService
         var products = new List<Product>();
         var jsonFiles = Directory.GetFiles(_basePath, "*.json", SearchOption.AllDirectories);
         
-        System.Diagnostics.Debug.WriteLine($"=== DataService: Found {jsonFiles.Length} JSON files ===");
+        Log($"=== DataService: Found {jsonFiles.Length} JSON files ===");
 
         foreach (var jsonFile in jsonFiles)
         {
             // Skip files in underscore-prefixed folders (e.g., _public-collections, _holders)
             if (IsInHiddenFolder(jsonFile))
             {
-                System.Diagnostics.Debug.WriteLine($"  SKIPPED (hidden): {jsonFile}");
+                Log($"  SKIPPED (hidden): {Path.GetFileName(jsonFile)}");
                 continue;
             }
 
@@ -70,18 +78,23 @@ public class DataService
                     // Derive taxonomy if missing
                     EnsureTaxonomy(product);
                     products.Add(product);
-                    System.Diagnostics.Debug.WriteLine($"  LOADED: {product.ProductName} from {jsonFile}");
+                    Log($"  ✓ LOADED: {product.ProductName} from {Path.GetFileName(jsonFile)}");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"  SKIPPED (null): {jsonFile}");
+                    Log($"  ✗ SKIPPED (null): {Path.GetFileName(jsonFile)}");
+                    Log($"    Deserialization returned null - check JSON structure");
                 }
             }
             catch (Exception ex)
             {
                 // Log error for debugging (products not loading)
-                System.Diagnostics.Debug.WriteLine($"  FAILED: {jsonFile}");
-                System.Diagnostics.Debug.WriteLine($"    Error: {ex.Message}");
+                Log($"  ✗ FAILED: {Path.GetFileName(jsonFile)}");
+                Log($"    Error: {ex.GetType().Name}: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Log($"    Inner: {ex.InnerException.Message}");
+                }
             }
         }
 
@@ -155,6 +168,8 @@ public class DataService
         try
         {
             var json = await File.ReadAllTextAsync(filePath, cancellationToken);
+            
+            // Try to deserialize
             var product = JsonSerializer.Deserialize<Product>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
@@ -177,12 +192,24 @@ public class DataService
             else
             {
                 System.Diagnostics.Debug.WriteLine($"✗ Failed to deserialize: {filePath}");
+                Log($"    JSON preview (first 200 chars): {json.Substring(0, Math.Min(200, json.Length))}");
                 return null;
             }
+        }
+        catch (JsonException jsonEx)
+        {
+            System.Diagnostics.Debug.WriteLine($"✗ JSON ERROR loading {Path.GetFileName(filePath)}: {jsonEx.Message}");
+            Log($"    JSON Parse Error in {Path.GetFileName(filePath)}: {jsonEx.Message}");
+            if (jsonEx.InnerException != null)
+            {
+                Log($"    Inner: {jsonEx.InnerException.Message}");
+            }
+            return null;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"✗ ERROR loading {Path.GetFileName(filePath)}: {ex.Message}");
+            Log($"    Unexpected error: {ex.GetType().Name} - {ex.Message}");
             return null;
         }
     }

@@ -158,13 +158,13 @@ public class SettingsDialog : Dialog<bool>
         // Block Definition Type
         _blockTypeLinkedRadio = new RadioButton
         {
-            Text = "Linked",
+            Text = "Linked (references external file, smaller file size)",
             Checked = settings.InsertBlockType == "Linked"
         };
         
         _blockTypeEmbeddedRadio = new RadioButton(_blockTypeLinkedRadio)
         {
-            Text = "Embedded",
+            Text = "Embedded (geometry copied into document)",
             Checked = settings.InsertBlockType == "Embedded"
         };
         

@@ -2,7 +2,11 @@ using Eto.Forms;
 using Eto.Drawing;
 using BoschMediaBrowser.Core.Models;
 using BoschMediaBrowser.Core.Services;
+using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace BoschMediaBrowser.Rhino.UI.Controls;
 
@@ -32,6 +36,10 @@ public class DetailPane : Panel
     private DropDown _holderColorDropDown;
     private CheckBox _noHolderCheckBox;
     private TabControl _previewTabs;
+    private ImageView _meshPreviewImage;
+    private ImageView _graficaPreviewImage;
+    private ImageView _packagingPreviewImage;
+    private ImageView _holderPreviewImage;
     private ListBox _tagsListBox;
     private Label _emptyStateLabel;
 
@@ -118,14 +126,21 @@ public class DetailPane : Panel
         _holderColorDropDown = new DropDown { Width = 200, Enabled = false };
         _holderColorDropDown.SelectedIndexChanged += OnHolderSelectionChanged;
 
-        _noHolderCheckBox = new CheckBox { Text = "No holder (product only)" };
+        _noHolderCheckBox = new CheckBox { Text = "No Holder" };
         _noHolderCheckBox.CheckedChanged += OnHolderSelectionChanged;
+
+        // Preview image views
+        _meshPreviewImage = new ImageView { Size = new Size(250, 250) };
+        _graficaPreviewImage = new ImageView { Size = new Size(250, 250) };
+        _packagingPreviewImage = new ImageView { Size = new Size(250, 250) };
+        _holderPreviewImage = new ImageView { Size = new Size(250, 250) };
 
         // Preview tabs
         _previewTabs = new TabControl();
-        _previewTabs.Pages.Add(new TabPage { Text = "Mesh Preview", Content = CreatePreviewTabContent("Mesh") });
-        _previewTabs.Pages.Add(new TabPage { Text = "Grafica Preview", Content = CreatePreviewTabContent("Grafica") });
-        _previewTabs.Pages.Add(new TabPage { Text = "Packaging Preview", Content = CreatePreviewTabContent("Packaging") });
+        _previewTabs.Pages.Add(new TabPage { Text = "Mesh", Content = CreateScrollablePreview(_meshPreviewImage) });
+        _previewTabs.Pages.Add(new TabPage { Text = "Grafica", Content = CreateScrollablePreview(_graficaPreviewImage) });
+        _previewTabs.Pages.Add(new TabPage { Text = "Packaging", Content = CreateScrollablePreview(_packagingPreviewImage) });
+        _previewTabs.Pages.Add(new TabPage { Text = "Holder", Content = CreateScrollablePreview(_holderPreviewImage) });
 
         // Tags list
         _tagsListBox = new ListBox { Height = 80 };
@@ -141,13 +156,18 @@ public class DetailPane : Panel
         };
     }
 
-    private Control CreatePreviewTabContent(string previewType)
+    private Control CreateScrollablePreview(ImageView imageView)
     {
-        return new Label
+        return new Scrollable
         {
-            Text = $"{previewType} preview will load here",
-            TextAlignment = TextAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            Content = new StackLayout
+            {
+                Padding = 10,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { imageView }
+            },
+            Border = BorderType.None
         };
     }
 
@@ -295,8 +315,8 @@ public class DetailPane : Panel
         // Load tags
         LoadTags(product);
 
-        // Load preview image
-        await LoadPreviewImageAsync(product);
+        // Load all preview images
+        await LoadPreviewImagesAsync(product);
     }
 
     /// <summary>
@@ -370,30 +390,88 @@ public class DetailPane : Panel
     }
 
     /// <summary>
-    /// Load preview image asynchronously
+    /// Load all preview images asynchronously (mesh, grafica, packaging)
     /// </summary>
-    private async Task LoadPreviewImageAsync(Product product)
+    private async Task LoadPreviewImagesAsync(Product product)
     {
         try
         {
-            var thumbnailPath = _thumbnailService.GetThumbnailPath(
-                product,
-                PreviewType.Mesh
-            );
-
+            // Load main preview image (legacy)
+            var thumbnailPath = _thumbnailService.GetThumbnailPath(product, PreviewType.Mesh);
             if (!string.IsNullOrEmpty(thumbnailPath) && File.Exists(thumbnailPath))
             {
                 _previewImage.Image = new Bitmap(thumbnailPath);
             }
             else
             {
-                _previewImage.Image = null; // Show placeholder
+                _previewImage.Image = null;
+            }
+
+            // Load mesh preview
+            var meshPath = product.Previews?.MeshPreview?.FullPath;
+            if (!string.IsNullOrEmpty(meshPath) && File.Exists(meshPath))
+            {
+                _meshPreviewImage.Image = new Bitmap(meshPath);
+            }
+            else
+            {
+                _meshPreviewImage.Image = null;
+            }
+
+            // Load grafica preview
+            var graficaPath = product.Previews?.GraficaPreview?.FullPath;
+            if (!string.IsNullOrEmpty(graficaPath) && File.Exists(graficaPath))
+            {
+                _graficaPreviewImage.Image = new Bitmap(graficaPath);
+            }
+            else
+            {
+                _graficaPreviewImage.Image = null;
+            }
+
+            // Load packaging preview
+            var packagingPath = product.Packaging?.PreviewPath;
+            if (!string.IsNullOrEmpty(packagingPath) && File.Exists(packagingPath))
+            {
+                _packagingPreviewImage.Image = new Bitmap(packagingPath);
+            }
+            else
+            {
+                _packagingPreviewImage.Image = null;
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Preview load error: {ex.Message}");
-            _previewImage.Image = null;
+        }
+    }
+
+    /// <summary>
+    /// Load holder preview image
+    /// </summary>
+    private void LoadHolderPreview(Holder? holder)
+    {
+        try
+        {
+            if (holder == null || string.IsNullOrEmpty(holder.Preview))
+            {
+                _holderPreviewImage.Image = null;
+                return;
+            }
+
+            if (File.Exists(holder.Preview))
+            {
+                _holderPreviewImage.Image = new Bitmap(holder.Preview);
+            }
+            else
+            {
+                _holderPreviewImage.Image = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Holder preview load error: {ex.Message}");
+            _holderPreviewImage.Image = null;
         }
     }
 
@@ -464,6 +542,7 @@ public class DetailPane : Panel
         {
             _holderVariantDropDown.Enabled = false;
             _holderColorDropDown.Enabled = false;
+            LoadHolderPreview(null); // Clear holder preview
             
             HolderSelectionChanged?.Invoke(this, new HolderSelectionEventArgs(null, null));
             return;
@@ -471,7 +550,7 @@ public class DetailPane : Panel
 
         _holderVariantDropDown.Enabled = true;
 
-        // Load colors when holder variant selected
+        // Load colors and preview when holder variant selected
         if (sender == _holderVariantDropDown && _holderVariantDropDown.SelectedIndex > 0)
         {
             var selectedVariant = _holderVariantDropDown.SelectedValue?.ToString();
@@ -480,6 +559,7 @@ public class DetailPane : Panel
             if (holder != null)
             {
                 LoadColorsForHolder(holder);
+                LoadHolderPreview(holder); // Load holder preview image
             }
         }
 

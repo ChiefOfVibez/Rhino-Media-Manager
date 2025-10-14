@@ -8,13 +8,13 @@ using BoschMediaBrowser.Core.Models;
 namespace BoschMediaBrowser.Rhino.UI.Controls
 {
     /// <summary>
-    /// Simple category navigation list (replaces TreeGridView to avoid DataStore freeze)
+    /// Hierarchical category navigation tree
+    /// Shows Range > Category structure (e.g., PRO > Garden, DIY > Drills)
     /// </summary>
     public class CategoryList : Panel
     {
-        private ListBox _listBox;
+        private TreeGridView _treeView;
         private List<Product> _allProducts = new();
-        private Dictionary<string, int> _categoryCounts = new();
         
         public event EventHandler<CategorySelectedEventArgs>? CategorySelected;
         
@@ -25,14 +25,30 @@ namespace BoschMediaBrowser.Rhino.UI.Controls
         
         private void InitializeUI()
         {
-            _listBox = new ListBox
+            _treeView = new TreeGridView
             {
-                BackgroundColor = Colors.White
+                BackgroundColor = Colors.White,
+                ShowHeader = false,
+                Border = BorderType.None
             };
             
-            _listBox.SelectedIndexChanged += OnSelectionChanged;
+            // Single column for category names
+            _treeView.Columns.Add(new GridColumn
+            {
+                DataCell = new TextBoxCell { Binding = Binding.Property<CategoryNode, string>(n => n.DisplayText) },
+                HeaderText = "Categories",
+                Expand = true
+            });
             
-            Content = _listBox;
+            _treeView.SelectionChanged += OnSelectionChanged;
+            
+            var scrollable = new Scrollable
+            {
+                Content = _treeView,
+                Border = BorderType.None
+            };
+            
+            Content = scrollable;
         }
         
         /// <summary>
@@ -46,79 +62,98 @@ namespace BoschMediaBrowser.Rhino.UI.Controls
         
         private void BuildCategoryList()
         {
-            _listBox.Items.Clear();
-            _categoryCounts.Clear();
+            _treeView.DataStore = null;
             
             if (_allProducts.Count == 0)
             {
                 return;
             }
             
-            // Count products per category
-            var categoryGroups = _allProducts
-                .GroupBy(p => p.Category ?? "Uncategorized")
+            var rootNodes = new List<CategoryNode>();
+            
+            // Add "All Products" root node
+            var allProductsNode = new CategoryNode
+            {
+                DisplayText = $"All Products ({_allProducts.Count})",
+                CategoryType = "All",
+                RangeFilter = null,
+                CategoryFilter = null,
+                Products = _allProducts
+            };
+            rootNodes.Add(allProductsNode);
+            
+            // Group by Range (PRO, DIY, etc.), then by Category
+            var rangeGroups = _allProducts
+                .Where(p => !string.IsNullOrEmpty(p.Range))
+                .GroupBy(p => p.Range)
                 .OrderBy(g => g.Key)
                 .ToList();
             
-            // Add "All Products" option
-            _listBox.Items.Add($"All Products ({_allProducts.Count})");
-            _categoryCounts["All Products"] = _allProducts.Count;
-            
-            // Add each category with count
-            foreach (var group in categoryGroups)
+            foreach (var rangeGroup in rangeGroups)
             {
-                var displayText = $"{group.Key} ({group.Count()})";
-                _listBox.Items.Add(displayText);
-                _categoryCounts[group.Key] = group.Count();
+                var rangeName = rangeGroup.Key;
+                var rangeProducts = rangeGroup.ToList();
+                
+                // Create range node (e.g., "PRO", "DIY")
+                var rangeNode = new CategoryNode
+                {
+                    DisplayText = $"{rangeName} ({rangeProducts.Count})",
+                    CategoryType = "Range",
+                    RangeFilter = rangeName,
+                    CategoryFilter = null,
+                    Products = rangeProducts
+                };
+                
+                // Add category children under each range
+                var categoryGroups = rangeProducts
+                    .GroupBy(p => p.Category ?? "Uncategorized")
+                    .OrderBy(g => g.Key)
+                    .ToList();
+                
+                foreach (var categoryGroup in categoryGroups)
+                {
+                    var categoryName = categoryGroup.Key;
+                    var categoryProducts = categoryGroup.ToList();
+                    
+                    var categoryNode = new CategoryNode
+                    {
+                        DisplayText = $"{categoryName} ({categoryProducts.Count})",
+                        CategoryType = "Category",
+                        RangeFilter = rangeName,
+                        CategoryFilter = categoryName,
+                        Products = categoryProducts
+                    };
+                    
+                    rangeNode.AddChild(categoryNode);
+                }
+                
+                rootNodes.Add(rangeNode);
             }
             
-            // Select "All Products" by default
-            if (_listBox.Items.Count > 0)
+            _treeView.DataStore = new TreeGridItemCollection(rootNodes);
+            
+            // Expand all and select "All Products" by default
+            _treeView.ReloadData();
+            if (rootNodes.Count > 0)
             {
-                _listBox.SelectedIndex = 0;
+                _treeView.SelectedItem = allProductsNode;
             }
             
-            global::Rhino.RhinoApp.WriteLine($"CategoryList: Loaded {categoryGroups.Count} categories, {_allProducts.Count} total products");
+            global::Rhino.RhinoApp.WriteLine($"CategoryList: Built tree with {rangeGroups.Count} ranges, {_allProducts.Count} total products");
         }
         
         private void OnSelectionChanged(object? sender, EventArgs e)
         {
-            if (_listBox.SelectedIndex < 0)
+            var selectedNode = _treeView.SelectedItem as CategoryNode;
+            if (selectedNode == null)
                 return;
             
-            var selectedText = _listBox.SelectedValue?.ToString() ?? "";
+            var filteredProducts = selectedNode.Products;
+            var displayName = selectedNode.DisplayText;
             
-            // Extract category name (remove count)
-            var category = ExtractCategoryName(selectedText);
+            global::Rhino.RhinoApp.WriteLine($"CategoryList: Selected '{displayName}', {filteredProducts.Count} products");
             
-            // Filter products
-            List<Product> filteredProducts;
-            
-            if (category == "All Products")
-            {
-                filteredProducts = _allProducts;
-            }
-            else
-            {
-                filteredProducts = _allProducts
-                    .Where(p => (p.Category ?? "Uncategorized") == category)
-                    .ToList();
-            }
-            
-            global::Rhino.RhinoApp.WriteLine($"CategoryList: Selected '{category}', {filteredProducts.Count} products");
-            
-            CategorySelected?.Invoke(this, new CategorySelectedEventArgs(category, filteredProducts));
-        }
-        
-        private string ExtractCategoryName(string displayText)
-        {
-            // Extract "Category Name" from "Category Name (123)"
-            var parenIndex = displayText.LastIndexOf('(');
-            if (parenIndex > 0)
-            {
-                return displayText.Substring(0, parenIndex).Trim();
-            }
-            return displayText.Trim();
+            CategorySelected?.Invoke(this, new CategorySelectedEventArgs(displayName, filteredProducts));
         }
         
         /// <summary>
@@ -126,12 +161,40 @@ namespace BoschMediaBrowser.Rhino.UI.Controls
         /// </summary>
         public string GetSelectedCategory()
         {
-            if (_listBox.SelectedIndex >= 0)
-            {
-                return ExtractCategoryName(_listBox.SelectedValue?.ToString() ?? "");
-            }
-            return "All Products";
+            var selectedNode = _treeView.SelectedItem as CategoryNode;
+            return selectedNode?.DisplayText ?? "All Products";
         }
+    }
+    
+    /// <summary>
+    /// Tree node for hierarchical categories
+    /// </summary>
+    public class CategoryNode : ITreeGridItem<CategoryNode>
+    {
+        private List<CategoryNode> _children = new();
+        
+        public string DisplayText { get; set; } = "";
+        public string CategoryType { get; set; } = ""; // "All", "Range", "Category"
+        public string? RangeFilter { get; set; }
+        public string? CategoryFilter { get; set; }
+        public List<Product> Products { get; set; } = new();
+        
+        // Method to add child nodes
+        public void AddChild(CategoryNode child)
+        {
+            _children.Add(child);
+            child.Parent = this;
+        }
+        
+        // ITreeGridItem implementation
+        public ITreeGridItem Parent { get; set; }
+        public IEnumerable<CategoryNode> Children => _children;
+        public bool Expanded { get; set; } = false;
+        public bool Expandable => _children.Count > 0;
+        
+        // IDataStore implementation
+        public int Count => _children.Count;
+        public CategoryNode this[int index] => _children[index];
     }
     
     /// <summary>
