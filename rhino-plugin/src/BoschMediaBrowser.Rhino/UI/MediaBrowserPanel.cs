@@ -77,8 +77,8 @@ public class MediaBrowserPanel : Panel
         LogToFile("=== MediaBrowserPanel: Constructor (EMPTY) ===");
         RhinoApp.WriteLine("=== MediaBrowserPanel: Constructor (EMPTY) ===");
         
-        // Set preferred default size (wider to fit 3 cards comfortably)
-        Size = new Size(820, 700);
+        // Set fixed size (non-resizable)
+        Size = new Size(940, 725);
     }
     
     /// <summary>
@@ -601,7 +601,6 @@ public class MediaBrowserPanel : Panel
         var categoryPanel = new Panel
         {
             Content = _categoryList,
-            MinimumSize = new Size(200, 400),
             Size = new Size(250, -1),
             Padding = 5
         };
