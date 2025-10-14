@@ -1648,25 +1648,45 @@ public class MediaBrowserPanel : Panel
             Padding = 0
         };
         
-        // Left side: Thumbnail (400x400)
-        var thumbnailImage = new ImageView
-        {
-            Width = 400,
-            Height = 400
-        };
+        // Left side: Preview tabs with multiple images
+        var meshPreviewImage = new ImageView { Size = new Size(380, 380) };
+        var graficaPreviewImage = new ImageView { Size = new Size(380, 380) };
+        var packagingPreviewImage = new ImageView { Size = new Size(380, 380) };
+        var holderPreviewImage = new ImageView { Size = new Size(380, 380) };
         
-        // Try to load thumbnail from existing preview images
-        LoadProductThumbnailAsync(product, thumbnailImage, ThumbnailSize.Large);
+        // Load preview images
+        LoadPreviewImage(product.Previews?.MeshPreview?.FullPath, meshPreviewImage);
+        LoadPreviewImage(product.Previews?.GraficaPreview?.FullPath, graficaPreviewImage);
+        LoadPreviewImage(product.Packaging?.PreviewPath, packagingPreviewImage);
+        
+        // Create preview tabs
+        var previewTabs = new TabControl();
+        previewTabs.Pages.Add(new TabPage 
+        { 
+            Text = "Mesh", 
+            Content = CreateCenteredImagePanel(meshPreviewImage) 
+        });
+        previewTabs.Pages.Add(new TabPage 
+        { 
+            Text = "Grafica", 
+            Content = CreateCenteredImagePanel(graficaPreviewImage) 
+        });
+        previewTabs.Pages.Add(new TabPage 
+        { 
+            Text = "Packaging", 
+            Content = CreateCenteredImagePanel(packagingPreviewImage) 
+        });
+        previewTabs.Pages.Add(new TabPage 
+        { 
+            Text = "Holder", 
+            Content = CreateCenteredImagePanel(holderPreviewImage) 
+        });
         
         var thumbnailContainer = new Panel
         {
             Width = 420,
             Padding = 10,
-            Content = new Panel
-            {
-                BackgroundColor = Color.FromArgb(245, 245, 245),
-                Content = thumbnailImage
-            }
+            Content = previewTabs
         };
         
         // Right side: Product details
@@ -1779,11 +1799,14 @@ public class MediaBrowserPanel : Panel
                 {
                     holderLabel.Text = "✓ No Holder";
                     selectedHolder = null;
+                    holderPreviewImage.Image = null;
                 }
                 else
                 {
                     holderLabel.Text = $"✓ {holder.Variant} - {holder.Color} ({holder.CodArticol})";
                     selectedHolder = holder;
+                    // Load holder preview image
+                    LoadPreviewImage(holder.Preview, holderPreviewImage);
                 }
             }
             
@@ -2133,5 +2156,47 @@ public class MediaBrowserPanel : Panel
                 _statusLabel.Text = message;
             });
         }
+    }
+
+    /// <summary>
+    /// Load preview image into ImageView
+    /// </summary>
+    private void LoadPreviewImage(string? imagePath, ImageView imageView)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+            {
+                imageView.Image = new Bitmap(imagePath);
+            }
+            else
+            {
+                imageView.Image = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"Error loading preview image: {ex.Message}");
+            imageView.Image = null;
+        }
+    }
+
+    /// <summary>
+    /// Create a centered panel for preview images
+    /// </summary>
+    private Control CreateCenteredImagePanel(ImageView imageView)
+    {
+        return new Scrollable
+        {
+            Content = new StackLayout
+            {
+                Padding = 10,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { imageView }
+            },
+            Border = BorderType.None,
+            BackgroundColor = Color.FromArgb(245, 245, 245)
+        };
     }
 }
