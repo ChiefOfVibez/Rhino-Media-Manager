@@ -90,12 +90,22 @@ public class ProductListView : Panel
         _batchInsertButton = new Button
         {
             Text = "Insert Selected (0)",
-            Width = 150,
+            Width = 180,
+            Height = 32,
             Visible = false
         };
         _batchInsertButton.Click += OnBatchInsertClicked;
         
-        mainLayout.Items.Add(new StackLayoutItem(_batchInsertButton, HorizontalAlignment.Center));
+        // Button container with padding for visibility
+        var buttonContainer = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Padding = new Padding(10, 10),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            Items = { _batchInsertButton }
+        };
+        
+        mainLayout.Items.Add(new StackLayoutItem(buttonContainer, false));
         
         Content = mainLayout;
     }
