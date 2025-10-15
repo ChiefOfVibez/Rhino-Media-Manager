@@ -11,6 +11,13 @@ Write-Host "Plugin root: $rhinoPluginRoot" -ForegroundColor Gray
 Set-Location $rhinoPluginRoot
 Write-Host ""
 
+# Step 0: Backup Rhino workspace
+Write-Host "=== Step 0: Backing Up Rhino Workspace ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Preserving your command prompt, toolbars, filters..." -ForegroundColor Gray
+& "$scriptDir\Backup-RhinoWorkspace.ps1" -Action Backup
+Write-Host ""
+
 # Step 1: Rebuild the plugin
 Write-Host "=== Step 1: Rebuilding Plugin ===" -ForegroundColor Cyan
 Write-Host ""
@@ -177,13 +184,20 @@ if ((Test-Path $installedRhp) -and (Test-Path $installedCore)) {
 }
 
 Write-Host ""
+Write-Host "=== Step 6: Restoring Workspace ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Restoring your command prompt, toolbars, filters..." -ForegroundColor Gray
+& "$scriptDir\Backup-RhinoWorkspace.ps1" -Action Restore
+Write-Host ""
+
 Write-Host "=== Installation Complete ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "OK Panel state reset (prevents auto-opening on startup)" -ForegroundColor Green
-Write-Host "OK Plugin files installed" -ForegroundColor Green
+Write-Host "✓ Workspace preserved (command prompt, toolbars, filters)" -ForegroundColor Green
+Write-Host "✓ Panel state reset (prevents auto-opening on startup)" -ForegroundColor Green
+Write-Host "✓ Plugin files installed" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Start Rhino 8 (panel should NOT open automatically)"
+Write-Host "  1. Start Rhino 8 (your workspace should be intact)"
 Write-Host "  2. Watch the command window for plugin load messages"
 Write-Host "  3. Run 'ShowMediaBrowser' command to open panel manually"
 Write-Host "  4. Copy ALL output from command window if any errors occur"

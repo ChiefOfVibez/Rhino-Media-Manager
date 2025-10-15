@@ -91,21 +91,35 @@ public class ProductListView : Panel
         {
             Text = "Insert Selected (0)",
             Width = 180,
-            Height = 32,
-            Visible = false
+            Height = 32
         };
         _batchInsertButton.Click += OnBatchInsertClicked;
         
-        // Button container with padding for visibility
-        var buttonContainer = new StackLayout
+        // Button container with explicit sizing for visibility
+        var buttonContainer = new TableLayout
         {
-            Orientation = Orientation.Horizontal,
-            Padding = new Padding(10, 10),
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            Items = { _batchInsertButton }
+            Padding = new Padding(10),
+            Spacing = new Size(5, 5),
+            Rows =
+            {
+                new TableRow(
+                    new TableCell(_batchInsertButton, true) { ScaleWidth = true }
+                )
+            }
         };
         
-        mainLayout.Items.Add(new StackLayoutItem(buttonContainer, false));
+        // Create panel to ensure button container is always rendered
+        var buttonPanel = new Panel
+        {
+            Content = buttonContainer,
+            MinimumSize = new Size(-1, 52), // Ensure minimum height
+            Visible = false  // Control visibility at panel level
+        };
+        
+        mainLayout.Items.Add(new StackLayoutItem(buttonPanel, false));
+        
+        // Store reference to button panel for visibility control
+        _batchInsertButton.Tag = buttonPanel;
         
         Content = mainLayout;
     }
@@ -488,7 +502,12 @@ public class ProductListView : Panel
         if (_batchInsertButton != null)
         {
             _batchInsertButton.Text = $"Insert Selected ({_selectedItems.Count})";
-            _batchInsertButton.Visible = MultiSelectMode && _selectedItems.Count > 0;
+            
+            // Control visibility at panel level (stored in button.Tag)
+            if (_batchInsertButton.Tag is Panel buttonPanel)
+            {
+                buttonPanel.Visible = MultiSelectMode && _selectedItems.Count > 0;
+            }
         }
     }
     

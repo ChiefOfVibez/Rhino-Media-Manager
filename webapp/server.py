@@ -530,12 +530,16 @@ async def reveal_file(request: PathRequest):
         
         if path_exists:
             # Use /select parameter to highlight the file
-            # explorer.exe handles UNC paths natively
+            # Important: /select, requires no space before the path
+            # Use shell=True with proper quoting for paths with spaces
+            command = f'explorer /select,"{file_path_str}"'
+            print(f"Executing command: {command}")
+            
             result = subprocess.run(
-                ['explorer', '/select,', file_path_str],
+                command,
                 capture_output=True,
                 text=True,
-                shell=False
+                shell=True  # Required for proper path handling
             )
             print(f"Subprocess result: {result.returncode}")
             if result.stderr:
