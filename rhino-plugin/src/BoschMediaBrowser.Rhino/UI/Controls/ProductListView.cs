@@ -24,20 +24,28 @@ public class ProductListView : Panel
     private Button _prevPageButton;
     private Button _nextPageButton;
     private Label _pageInfoLabel;
+    private Color? _themeBackgroundColor;
+    private Color? _themeTextColor;
+    private Color? _themeButtonBackgroundColor;
+    private Color? _themeButtonTextColor;
+    private Color? _themeRowBackgroundColor;
+    private Color? _themeRowTextColor;
     
     private int _currentPage = 1;
     private const int ITEMS_PER_PAGE = 20;
     
     // Track selected items with their holder/packaging settings
     private Dictionary<string, (Product product, string? holderKey, bool includePackaging)> _selectedItems = new();
-    private Button? _batchInsertButton;
     
     public bool MultiSelectMode { get; set; }
+    public int SelectedCount => _selectedItems.Count;
     
     public event EventHandler<ProductCardEventArgs>? ProductSelected;
     public event EventHandler<ProductCardEventArgs>? ProductPreview;
     public event EventHandler<ProductCardEventArgs>? ProductInsert;
+    public event EventHandler<ProductCardEventArgs>? AddToCollectionRequested;
     public event EventHandler<BatchInsertEventArgs>? BatchInsert;
+    public event EventHandler? SelectionChanged;
     
     public ProductListView(ThumbnailService thumbnailService, UserDataService userDataService)
     {
@@ -86,42 +94,55 @@ public class ProductListView : Panel
         mainLayout.Items.Add(new StackLayoutItem(scrollable, true));
         mainLayout.Items.Add(new StackLayoutItem(_paginationPanel, false));
         
-        // Multi-insert button (initially hidden)
-        _batchInsertButton = new Button
-        {
-            Text = "Insert Selected (0)",
-            Width = 180,
-            Height = 32
-        };
-        _batchInsertButton.Click += OnBatchInsertClicked;
-        
-        // Button container with explicit sizing for visibility
-        var buttonContainer = new TableLayout
-        {
-            Padding = new Padding(10),
-            Spacing = new Size(5, 5),
-            Rows =
-            {
-                new TableRow(
-                    new TableCell(_batchInsertButton, true) { ScaleWidth = true }
-                )
-            }
-        };
-        
-        // Create panel to ensure button container is always rendered
-        var buttonPanel = new Panel
-        {
-            Content = buttonContainer,
-            MinimumSize = new Size(-1, 52), // Ensure minimum height
-            Visible = false  // Control visibility at panel level
-        };
-        
-        mainLayout.Items.Add(new StackLayoutItem(buttonPanel, false));
-        
-        // Store reference to button panel for visibility control
-        _batchInsertButton.Tag = buttonPanel;
+        // Note: Batch insert button moved to main toolbar in MediaBrowserPanel
+        // Selection changes are communicated via SelectionChanged event
         
         Content = mainLayout;
+    }
+
+    public void ApplyTheme(Color? background, Color? textColor, Color? buttonBackground, Color? buttonText, Color? rowBackground, Color? rowText)
+    {
+        _themeBackgroundColor = background;
+        _themeTextColor = textColor;
+        _themeButtonBackgroundColor = buttonBackground;
+        _themeButtonTextColor = buttonText;
+        _themeRowBackgroundColor = rowBackground;
+        _themeRowTextColor = rowText;
+
+        BackgroundColor = background ?? Colors.Transparent;
+        _listContainer.BackgroundColor = background ?? Colors.Transparent;
+        if (textColor.HasValue)
+        {
+            _emptyStateLabel.TextColor = textColor.Value;
+        }
+
+        ApplyButtonTheme(_prevPageButton);
+        ApplyButtonTheme(_nextPageButton);
+
+        _ = RenderPage();
+    }
+
+    private void ApplyButtonTheme(Button? button)
+    {
+        if (button == null) return;
+
+        if (_themeButtonBackgroundColor.HasValue)
+        {
+            button.BackgroundColor = _themeButtonBackgroundColor.Value;
+        }
+        else
+        {
+            button.BackgroundColor = Colors.Transparent;
+        }
+
+        if (_themeButtonTextColor.HasValue)
+        {
+            button.TextColor = _themeButtonTextColor.Value;
+        }
+        else
+        {
+            button.TextColor = Colors.Black;
+        }
     }
     
     private Panel CreatePaginationPanel()
@@ -207,8 +228,7 @@ public class ProductListView : Panel
         // Container for the entire row
         var rowPanel = new Panel
         {
-            Padding = new Padding(10, 8),
-            BackgroundColor = Colors.White
+            Padding = new Padding(10, 8)
         };
         
         // Thumbnail
@@ -218,7 +238,7 @@ public class ProductListView : Panel
         };
         
         // Load thumbnail async
-        _ = LoadThumbnailAsync(product, thumbnail);
+        LoadThumbnailAsync(product, thumbnail);
         
         // Product info
         var nameLabel = new Label
@@ -232,7 +252,6 @@ public class ProductListView : Panel
         {
             Text = product.Sku ?? "",
             Font = new Font(SystemFont.Default, 9),
-            TextColor = Color.FromArgb(120, 120, 120),
             VerticalAlignment = VerticalAlignment.Center
         };
         
@@ -243,14 +262,14 @@ public class ProductListView : Panel
                 ? string.Join(", ", product.Tags.Select(t => $"#{t}")) 
                 : "",
             Font = new Font(SystemFont.Default, 9),
-            TextColor = Color.FromArgb(100, 100, 200),
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Wrap = WrapMode.Word
         };
         
         // Holder variant dropdown
         var holderDropdown = new DropDown
         {
-            Width = 140
+            Width = 160
         };
         holderDropdown.Items.Add("No Holder");
         // Store full "Variant_Color" keys to uniquely identify holders
@@ -265,7 +284,8 @@ public class ProductListView : Panel
         }
         // Default to first holder if available (usually Tego)
         holderDropdown.SelectedIndex = holderKeys.Count > 1 ? 1 : 0;
-        
+        holderDropdown.Enabled = holderKeys.Count > 1;
+
         // Packaging checkbox
         var packagingCheckbox = new CheckBox
         {
@@ -315,32 +335,63 @@ public class ProductListView : Panel
             isFavorite = !isFavorite;
         };
         
-        // Checkbox for multi-select
-        var checkbox = new CheckBox
+        var addToCollectionButton = new Button
         {
-            Visible = MultiSelectMode
+            Text = "📁",
+            Width = 40,
+            Height = 28,
+            ToolTip = "Add to Collection"
         };
-        
-        // Track checkbox state for batch insert
-        checkbox.CheckedChanged += (s, e) =>
+        addToCollectionButton.Click += (s, e) =>
         {
+            // Capture current holder and packaging settings
             var selectedIndex = holderDropdown.SelectedIndex;
             var holderKey = selectedIndex > 0 && selectedIndex < holderKeys.Count 
                 ? holderKeys[selectedIndex] 
                 : null;
             var includePackaging = packagingCheckbox.Checked == true;
             
+            AddToCollectionRequested?.Invoke(this, new ProductCardEventArgs(product, holderKey, includePackaging));
+        };
+        
+        // Checkbox for multi-select
+        var checkbox = new CheckBox
+        {
+            Visible = MultiSelectMode
+        };
+        
+        // Helper to update selection with current holder/packaging state
+        Action updateSelection = () =>
+        {
             if (checkbox.Checked == true)
             {
+                var selectedIndex = holderDropdown.SelectedIndex;
+                var holderKey = selectedIndex > 0 && selectedIndex < holderKeys.Count 
+                    ? holderKeys[selectedIndex] 
+                    : null;
+                var includePackaging = packagingCheckbox.Checked == true;
                 _selectedItems[product.Id] = (product, holderKey, includePackaging);
+                UpdateBatchInsertButton();
+            }
+        };
+        
+        // Track checkbox state for batch insert
+        checkbox.CheckedChanged += (s, e) =>
+        {
+            if (checkbox.Checked == true)
+            {
+                updateSelection();
             }
             else
             {
                 _selectedItems.Remove(product.Id);
+                UpdateBatchInsertButton();
             }
-            
-            UpdateBatchInsertButton();
         };
+        
+        // Update selection when holder or packaging changes (if already checked)
+        holderDropdown.SelectedIndexChanged += (s, e) => updateSelection();
+        packagingCheckbox.CheckedChanged += (s, e) => updateSelection();
         
         // Info stack (vertically centered)
         var infoStack = new StackLayout
@@ -359,6 +410,12 @@ public class ProductListView : Panel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { holderDropdown, packagingCheckbox }
         };
+
+        var holderPackagingPanel = new Panel
+        {
+            Width = 220,
+        };
+        holderPackagingPanel.Content = holderPackagingLayout;
         
         // Create action buttons container with icons
         var actionsLayout = new StackLayout
@@ -366,7 +423,13 @@ public class ProductListView : Panel
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Items = { insertButton, favoriteButton }
+            Items = { insertButton, favoriteButton, addToCollectionButton }
+        };
+
+        var actionsPanel = new Panel
+        {
+            Width = 180,
+            Content = actionsLayout
         };
         
         // Layout: [Checkbox] [Thumbnail] [Info] [Holder+Pkg] [Actions]
@@ -376,25 +439,102 @@ public class ProductListView : Panel
             Rows =
             {
                 new TableRow(
-                    new TableCell(checkbox, false),
-                    new TableCell(thumbnail, false),
-                    new TableCell(infoStack, true), // Takes remaining space
-                    new TableCell(holderPackagingLayout, false),
-                    new TableCell(actionsLayout, false)
+                    new TableCell(new Panel
+                    {
+                        Width = 30,
+                        Content = checkbox
+                    }, false),
+                    new TableCell(new Panel
+                    {
+                        Width = 90,
+                        Content = thumbnail
+                    }, false),
+                    new TableCell(new Panel
+                    {
+                        Width = 350,
+                        Content = infoStack
+                    }, false),
+                    new TableCell(holderPackagingPanel, false),
+                    new TableCell(actionsPanel, false)
                 )
             }
         };
         
         rowPanel.Content = layout;
+
+        void ApplyRowTheme()
+        {
+            if (_themeRowBackgroundColor.HasValue)
+            {
+                rowPanel.BackgroundColor = _themeRowBackgroundColor.Value;
+            }
+            else
+            {
+                rowPanel.BackgroundColor = Colors.White;
+            }
+
+            var defaultSkuColor = Color.FromArgb(120, 120, 120);
+            var defaultTagsColor = Color.FromArgb(100, 100, 200);
+            if (_themeRowTextColor.HasValue)
+            {
+                var textColor = _themeRowTextColor.Value;
+                nameLabel.TextColor = textColor;
+                skuLabel.TextColor = textColor;
+                tagsLabel.TextColor = textColor;
+            }
+            else
+            {
+                nameLabel.TextColor = Colors.Black;
+                skuLabel.TextColor = defaultSkuColor;
+                tagsLabel.TextColor = defaultTagsColor;
+            }
+
+            if (_themeButtonBackgroundColor.HasValue)
+            {
+                insertButton.BackgroundColor = _themeButtonBackgroundColor.Value;
+                favoriteButton.BackgroundColor = _themeButtonBackgroundColor.Value;
+                addToCollectionButton.BackgroundColor = _themeButtonBackgroundColor.Value;
+            }
+            else
+            {
+                insertButton.BackgroundColor = Colors.Transparent;
+                favoriteButton.BackgroundColor = Colors.Transparent;
+                addToCollectionButton.BackgroundColor = Colors.Transparent;
+            }
+
+            if (_themeButtonTextColor.HasValue)
+            {
+                var buttonText = _themeButtonTextColor.Value;
+                insertButton.TextColor = buttonText;
+                favoriteButton.TextColor = buttonText;
+                addToCollectionButton.TextColor = buttonText;
+            }
+            else
+            {
+                insertButton.TextColor = Colors.Black;
+                favoriteButton.TextColor = Colors.Black;
+                addToCollectionButton.TextColor = Colors.Black;
+            }
+        }
+
+        holderDropdown.Visible = true;
+        packagingCheckbox.Visible = true;
+        holderPackagingLayout.Visible = true;
+        holderPackagingPanel.Visible = true;
+
+        ApplyRowTheme();
         
-        // Click to preview
-        rowPanel.MouseUp += (s, e) =>
+        // Click on thumbnail or name to preview (not dropdown/checkbox)
+        EventHandler<MouseEventArgs> previewHandler = (s, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
             {
                 ProductPreview?.Invoke(this, new ProductCardEventArgs(product));
             }
         };
+        
+        thumbnail.MouseUp += previewHandler;
+        nameLabel.MouseUp += previewHandler;
         
         // Separator line
         var separator = new Panel
@@ -413,7 +553,7 @@ public class ProductListView : Panel
         return itemContainer;
     }
     
-    private async System.Threading.Tasks.Task LoadThumbnailAsync(Product product, ImageView imageView)
+    private async void LoadThumbnailAsync(Product product, ImageView imageView)
     {
         try
         {
@@ -421,51 +561,65 @@ public class ProductListView : Panel
             string? previewPath = product.Previews?.MeshPreview?.FullPath 
                                ?? product.Previews?.GraficaPreview?.FullPath;
             
-            if (!string.IsNullOrEmpty(previewPath) && System.IO.File.Exists(previewPath))
+            if (!string.IsNullOrEmpty(previewPath))
             {
-                // Use existing preview image directly
+                if (System.IO.File.Exists(previewPath))
+                {
+                    // Use existing preview image directly - create Bitmap on UI thread
+                    var pathToLoad = previewPath;
+                    Application.Instance.AsyncInvoke(() =>
+                    {
+                        try
+                        {
+                            imageView.Image = new Bitmap(pathToLoad);
+                        }
+                        catch (Exception ex)
+                        {
+                            global::Rhino.RhinoApp.WriteLine($"ProductListView: Failed to load preview for {product.ProductName}: {ex.Message}");
+                        }
+                    });
+                    return;
+                }
+                else
+                {
+                    global::Rhino.RhinoApp.WriteLine($"ProductListView: Preview file not found for {product.ProductName}: {previewPath}");
+                }
+            }
+            else
+            {
+                global::Rhino.RhinoApp.WriteLine($"ProductListView: No preview path in JSON for {product.ProductName}");
+            }
+            
+            // No preview available or failed to load, use thumbnail service
+            var thumbnailPath = await _thumbnailService.GetThumbnailPathAsync(
+                product.Id,
+                ThumbnailSize.Small,
+                System.Threading.CancellationToken.None
+            );
+            
+            if (!string.IsNullOrEmpty(thumbnailPath) && System.IO.File.Exists(thumbnailPath))
+            {
+                var pathToLoad = thumbnailPath;
                 Application.Instance.AsyncInvoke(() =>
                 {
                     try
                     {
-                        imageView.Image = new Bitmap(previewPath);
+                        imageView.Image = new Bitmap(pathToLoad);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Failed to load, fallback to thumbnail service
-                        _ = LoadFromThumbnailService();
+                        global::Rhino.RhinoApp.WriteLine($"ProductListView: Failed to load thumbnail for {product.ProductName}: {ex.Message}");
                     }
                 });
             }
             else
             {
-                await LoadFromThumbnailService();
-            }
-            
-            async System.Threading.Tasks.Task LoadFromThumbnailService()
-            {
-                var thumbnailPath = await _thumbnailService.GetThumbnailPathAsync(
-                    product.Id,
-                    ThumbnailSize.Small,
-                    System.Threading.CancellationToken.None
-                );
-                
-                if (!string.IsNullOrEmpty(thumbnailPath) && System.IO.File.Exists(thumbnailPath))
-                {
-                    Application.Instance.AsyncInvoke(() =>
-                    {
-                        try
-                        {
-                            imageView.Image = new Bitmap(thumbnailPath);
-                        }
-                        catch { }
-                    });
-                }
+                global::Rhino.RhinoApp.WriteLine($"ProductListView: Thumbnail not available for {product.ProductName}");
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Thumbnail loading failed, keep placeholder
+            global::Rhino.RhinoApp.WriteLine($"ProductListView: Error loading thumbnail for {product.ProductName}: {ex.Message}");
         }
     }
     
@@ -499,15 +653,15 @@ public class ProductListView : Panel
     
     private void UpdateBatchInsertButton()
     {
-        if (_batchInsertButton != null)
+        // Button is now in main toolbar (MediaBrowserPanel)
+        // Just notify parent via event
+        try
         {
-            _batchInsertButton.Text = $"Insert Selected ({_selectedItems.Count})";
-            
-            // Control visibility at panel level (stored in button.Tag)
-            if (_batchInsertButton.Tag is Panel buttonPanel)
-            {
-                buttonPanel.Visible = MultiSelectMode && _selectedItems.Count > 0;
-            }
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch
+        {
+            // Ignore errors during selection change notification
         }
     }
     
@@ -527,12 +681,28 @@ public class ProductListView : Panel
     }
     
     /// <summary>
+    /// Get selected items
+    /// </summary>
+    public List<(Product product, string? holderKey, bool includePackaging)> GetSelectedItems()
+    {
+        return _selectedItems.Values.ToList();
+    }
+    
+    /// <summary>
     /// Clear all selections
     /// </summary>
     public void ClearSelections()
     {
         _selectedItems.Clear();
         UpdateBatchInsertButton();
+    }
+    
+    /// <summary>
+    /// Trigger batch insert from external caller (e.g., toolbar button)
+    /// </summary>
+    public void PerformBatchInsert()
+    {
+        OnBatchInsertClicked(this, EventArgs.Empty);
     }
 }
 

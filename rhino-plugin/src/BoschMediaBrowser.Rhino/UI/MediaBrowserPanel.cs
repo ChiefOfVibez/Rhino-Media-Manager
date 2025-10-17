@@ -8,6 +8,7 @@ using BoschMediaBrowser.Rhino.UI.Views;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace BoschMediaBrowser.Rhino.UI;
 
@@ -17,6 +18,9 @@ namespace BoschMediaBrowser.Rhino.UI;
 [System.Runtime.InteropServices.Guid("A3B5C7D9-1E2F-4A5B-8C9D-0E1F2A3B4C5D")]
 public class MediaBrowserPanel : Panel
 {
+    // Static instance for access from commands
+    public static MediaBrowserPanel? Instance { get; private set; }
+
     // Services (lazy initialized)
     private DataService? _dataService;
     private SearchService? _searchService;
@@ -28,10 +32,16 @@ public class MediaBrowserPanel : Panel
     private TextBox? _searchBox;
     private Label? _statusLabel;
     private TabControl? _tabs;
+    private TabPage? _favouritesTabPage;
+    private TabPage? _collectionsTabPage;
+    private TabPage? _sidebarFavouritesTabPage;
+    private TabPage? _sidebarCollectionsTabPage;
     private Button? _refreshButton;
+    private Button? _exportButton;
     private Button? _settingsButton;
     private Button? _viewModeButton;
     private Button? _multiSelectButton;
+    private Button? _batchInsertButton;
     private Button? _updateLinkedButton;
     
     // Rich UI Components
@@ -74,8 +84,9 @@ public class MediaBrowserPanel : Panel
     {
         // ABSOLUTELY MINIMAL CONSTRUCTOR - DO NOTHING
         // All initialization happens in OnShown
-        LogToFile("=== MediaBrowserPanel: Constructor (EMPTY) ===");
         RhinoApp.WriteLine("=== MediaBrowserPanel: Constructor (EMPTY) ===");
+        Instance = this; // Set static instance for command access
+        LogToFile("=== MediaBrowserPanel: Constructor (EMPTY) ===");
         
         // Set fixed size (non-resizable)
         Size = new Size(940, 725);
@@ -271,6 +282,15 @@ public class MediaBrowserPanel : Panel
                 LogToFile("MediaBrowserPanel: Creating UserDataService...");
                 RhinoApp.WriteLine("MediaBrowserPanel: Creating UserDataService...");
                 _userDataService = new UserDataService();
+                
+                // Share UserDataService with plugin instance (for commands to access)
+                if (BoschMediaBrowserPlugin.Instance != null)
+                {
+                    BoschMediaBrowserPlugin.Instance.UserDataService = _userDataService;
+                    BoschMediaBrowserPlugin.Instance.CollectionsChanged += OnPluginCollectionsChanged;
+                    BoschMediaBrowserPlugin.Instance.ProductInsertRequested += OnPluginProductInsertRequested;
+                }
+                
                 LogToFile("MediaBrowserPanel: UserDataService OK");
                 RhinoApp.WriteLine("MediaBrowserPanel: UserDataService OK");
                 
@@ -415,6 +435,14 @@ public class MediaBrowserPanel : Panel
         };
         _multiSelectButton.Click += OnMultiSelectToggled;
         
+        _batchInsertButton = new Button
+        {
+            Text = "Insert Selected (0)",
+            ToolTip = "Insert all selected products",
+            Visible = false
+        };
+        _batchInsertButton.Click += OnBatchInsertButtonClicked;
+        
         _updateLinkedButton = new Button 
         { 
             Text = "🔗 Update Linked",
@@ -424,6 +452,13 @@ public class MediaBrowserPanel : Panel
         
         _refreshButton = new Button { Text = "⟳ Refresh" };
         _refreshButton.Click += OnRefreshClicked;
+        
+        _exportButton = new Button 
+        { 
+            Text = "📊 Export List",
+            ToolTip = "Export stocking list from current document"
+        };
+        _exportButton.Click += OnExportStockingList;
         
         _settingsButton = new Button { Text = "⚙ Settings" };
         _settingsButton.Click += OnSettingsClicked;
@@ -438,8 +473,10 @@ public class MediaBrowserPanel : Panel
                 new StackLayoutItem(_searchBox, true),
                 _viewModeButton,
                 _multiSelectButton,
+                _batchInsertButton,
                 _updateLinkedButton,
                 _refreshButton,
+                _exportButton,
                 _settingsButton
             }
         };
@@ -452,16 +489,16 @@ public class MediaBrowserPanel : Panel
         browseTab.Content = CreateBrowseTab();
         
         // Favourites Tab - Using FavouritesView
-        var favouritesTab = new TabPage { Text = "⭐ Favourites" };
-        favouritesTab.Content = CreateFavouritesTab();
+        _favouritesTabPage = new TabPage { Text = "⭐ Favourites" };
+        _favouritesTabPage.Content = CreateFavouritesTab();
         
         // Collections Tab - Using CollectionsView
-        var collectionsTab = new TabPage { Text = "📂 Collections" };
-        collectionsTab.Content = CreateCollectionsTab();
+        _collectionsTabPage = new TabPage { Text = "📂 Collections" };
+        _collectionsTabPage.Content = CreateCollectionsTab();
 
         _tabs.Pages.Add(browseTab);
-        _tabs.Pages.Add(favouritesTab);
-        _tabs.Pages.Add(collectionsTab);
+        _tabs.Pages.Add(_favouritesTabPage);
+        _tabs.Pages.Add(_collectionsTabPage);
 
         // Status bar with product count
         _statusLabel = new Label 
@@ -496,7 +533,7 @@ public class MediaBrowserPanel : Panel
             Orientation = Orientation.Horizontal
         };
         
-        Content = new TableLayout
+        var mainLayout = new TableLayout
         {
             Padding = 0,
             Spacing = new Size(0, 0),
@@ -507,13 +544,163 @@ public class MediaBrowserPanel : Panel
                 statusBar
             }
         };
+        
+        Content = mainLayout;
+        
+        // Apply theme colors if set
+        ApplyThemeColors();
+    }
+    
+    private void ApplyThemeColors()
+    {
+        if (_settingsService == null) return;
+        
+        var settings = _settingsService.GetSettings();
+        
+        // Get all theme colors
+        Color? mainBgColor = settings.ThemeBackgroundColor.HasValue 
+            ? Color.FromArgb(settings.ThemeBackgroundColor.Value) 
+            : (Color?)null;
+            
+        Color? mainTextColor = settings.ThemeTextColor.HasValue 
+            ? Color.FromArgb(settings.ThemeTextColor.Value) 
+            : (Color?)null;
+            
+        Color? sidebarBgColor = settings.ThemeSidebarBackground.HasValue 
+            ? Color.FromArgb(settings.ThemeSidebarBackground.Value) 
+            : (Color?)null;
+            
+        Color? sidebarTextColor = settings.ThemeSidebarText.HasValue
+            ? Color.FromArgb(settings.ThemeSidebarText.Value)
+            : (Color?)null;
+        
+        Color? cardBgColor = settings.ThemeCardBackground.HasValue 
+            ? Color.FromArgb(settings.ThemeCardBackground.Value) 
+            : (Color?)null;
+            
+        Color? cardTextColor = settings.ThemeCardText.HasValue 
+            ? Color.FromArgb(settings.ThemeCardText.Value) 
+            : (Color?)null;
+        
+        Color? buttonBgColor = settings.ThemeButtonBackground.HasValue
+            ? Color.FromArgb(settings.ThemeButtonBackground.Value)
+            : (Color?)null;
+        
+        Color? buttonTextColor = settings.ThemeButtonText.HasValue
+            ? Color.FromArgb(settings.ThemeButtonText.Value)
+            : (Color?)null;
+        
+        Color? listRowBgColor = settings.ThemeListRowBackground.HasValue
+            ? Color.FromArgb(settings.ThemeListRowBackground.Value)
+            : (Color?)null;
+        
+        Color? listRowTextColor = settings.ThemeListRowText.HasValue
+            ? Color.FromArgb(settings.ThemeListRowText.Value)
+            : (Color?)null;
+
+        // Apply main panel background
+        if (mainBgColor.HasValue)
+        {
+            BackgroundColor = mainBgColor.Value;
+        }
+        
+        // Apply to status label
+        if (mainTextColor.HasValue && _statusLabel != null)
+        {
+            _statusLabel.TextColor = mainTextColor.Value;
+        }
+        
+        // Apply to tabs (main product area)
+        if (_tabs != null && mainBgColor.HasValue)
+        {
+            _tabs.BackgroundColor = mainBgColor.Value;
+        }
+        
+        // Apply sidebar background to category list
+        if (_categoryList != null && sidebarBgColor.HasValue)
+        {
+            _categoryList.BackgroundColor = sidebarBgColor.Value;
+            if (sidebarTextColor.HasValue) ApplyTextColorRecursive(_categoryList, sidebarTextColor.Value);
+        }
+        
+        // Apply card colors to product card grid
+        if (_productCardGrid != null)
+        {
+            if (cardBgColor.HasValue) 
+            {
+                _productCardGrid.BackgroundColor = cardBgColor.Value;
+            }
+            // Card text color will be applied to individual cards
+        }
+        
+        // Apply card colors to product list view
+        if (_productListView != null)
+        {
+            if (cardBgColor.HasValue) 
+            {
+                _productListView.BackgroundColor = cardBgColor.Value;
+            }
+            if (cardTextColor.HasValue)
+            {
+                ApplyTextColorRecursive(_productListView, cardTextColor.Value);
+            }
+            _productListView.ApplyTheme(cardBgColor, cardTextColor, buttonBgColor, buttonTextColor, listRowBgColor, listRowTextColor);
+        }
+        
+        ApplyToolbarTheme(buttonBgColor, buttonTextColor);
+        ApplySidebarTabTheme(sidebarBgColor, sidebarTextColor, buttonBgColor, buttonTextColor, listRowBgColor, listRowTextColor);
+    }
+    
+    private void ApplyToolbarTheme(Color? buttonBgColor, Color? buttonTextColor)
+    {
+        var buttons = new[] { _viewModeButton, _multiSelectButton, _batchInsertButton, _updateLinkedButton, _refreshButton, _exportButton, _settingsButton };
+        foreach (var btn in buttons)
+        {
+            if (btn == null) continue;
+            btn.BackgroundColor = buttonBgColor ?? Colors.Transparent;
+            btn.TextColor = buttonTextColor ?? Colors.Black;
+        }
+    }
+    
+    private void ApplySidebarTabTheme(Color? sidebarBackground, Color? sidebarText, Color? buttonBg, Color? buttonText, Color? listRowBg, Color? listRowText)
+    {
+        if (_favouritesTabPage?.Content is FavouritesViewCompact favouritesView)
+        {
+            favouritesView.ApplyTheme(sidebarBackground, sidebarText, buttonBg, buttonText);
+        }
+        if (_collectionsTabPage?.Content is CollectionsViewCompact collectionsView)
+        {
+            collectionsView.ApplyTheme(sidebarBackground, sidebarText, buttonBg, buttonText);
+        }
+        if (_sidebarFavouritesTabPage?.Content is FavouritesViewCompact sidebarFavView)
+        {
+            sidebarFavView.ApplyTheme(sidebarBackground, sidebarText, buttonBg, buttonText);
+        }
+        if (_sidebarCollectionsTabPage?.Content is CollectionsViewCompact sidebarCollView)
+        {
+            sidebarCollView.ApplyTheme(sidebarBackground, sidebarText, buttonBg, buttonText);
+        }
+    }
+    
+    private void ApplyTextColorRecursive(Control control, Color textColor)
+    {
+        if (control is Label label)
+        {
+            label.TextColor = textColor;
+        }
+        else if (control is Container container)
+        {
+            foreach (var child in container.Controls)
+            {
+                ApplyTextColorRecursive(child, textColor);
+            }
+        }
     }
     
     private Control CreateLeftSidebar()
     {
-        // Left sidebar with tabs: Browse (categories), Collections (fav+collections), Filters
         var sidebarTabs = new TabControl();
-        
+
         // Browse tab - category tree
         var browseTab = new TabPage { Text = "📁 Browse" };
         _categoryList = new CategoryList();
@@ -523,41 +710,54 @@ public class MediaBrowserPanel : Panel
             Content = _categoryList,
             Padding = 5
         };
-        
-        // Collections tab - favourites + collections combined
+
         var collectionsTab = new TabPage { Text = "⭐ Collections" };
         collectionsTab.Content = CreateCollectionsTabContent();
-        
-        // Filters tab
-        var filtersTab = new TabPage { Text = "🔧 Filters" };
-        _filtersBar = new FiltersBar(_searchService);
-        _filtersBar.FiltersChanged += OnFiltersChanged;
-        filtersTab.Content = new Panel
+
+        TabPage filtersTab;
+        if (_searchService != null)
         {
-            Content = _filtersBar,
-            Padding = 5
-        };
-        
+            _filtersBar = new FiltersBar(_searchService);
+            _filtersBar.FiltersChanged += OnFiltersChanged;
+            filtersTab = new TabPage
+            {
+                Text = "🔧 Filters",
+                Content = new Panel
+                {
+                    Content = _filtersBar,
+                    Padding = 5
+                }
+            };
+        }
+        else
+        {
+            filtersTab = new TabPage
+            {
+                Text = "🔧 Filters",
+                Content = new Label { Text = "Services not initialized" }
+            };
+        }
+
         sidebarTabs.Pages.Add(browseTab);
         sidebarTabs.Pages.Add(collectionsTab);
         sidebarTabs.Pages.Add(filtersTab);
-        
+
         return sidebarTabs;
     }
-    
+
     private Control CreateCollectionsTabContent()
     {
         // Combine favourites and collections in one tab
         var collectionsTabs = new TabControl();
         
-        var favTab = new TabPage { Text = "Favourites" };
-        favTab.Content = CreateFavouritesTab();
+        _sidebarFavouritesTabPage = new TabPage { Text = "Favourites" };
+        _sidebarFavouritesTabPage.Content = CreateFavouritesTab();
         
-        var collTab = new TabPage { Text = "Collections" };
-        collTab.Content = CreateCollectionsTab();
+        _sidebarCollectionsTabPage = new TabPage { Text = "Collections" };
+        _sidebarCollectionsTabPage.Content = CreateCollectionsTab();
         
-        collectionsTabs.Pages.Add(favTab);
-        collectionsTabs.Pages.Add(collTab);
+        collectionsTabs.Pages.Add(_sidebarFavouritesTabPage);
+        collectionsTabs.Pages.Add(_sidebarCollectionsTabPage);
         
         return new Panel
         {
@@ -572,12 +772,15 @@ public class MediaBrowserPanel : Panel
         _productCardGrid.ProductSelected += OnProductSelectedInGrid;
         _productCardGrid.ProductPreview += OnProductPreviewRequested;
         _productCardGrid.ProductInsert += OnProductInsertRequested;
+        _productCardGrid.AddToCollectionRequested += OnAddToCollectionRequested;
         
         _productListView = new ProductListView(_thumbnailService, _userDataService);
         _productListView.ProductSelected += OnProductSelectedInGrid;
         _productListView.ProductPreview += OnProductPreviewRequested;
         _productListView.ProductInsert += OnProductInsertRequested;
+        _productListView.AddToCollectionRequested += OnAddToCollectionRequested;
         _productListView.BatchInsert += OnBatchInsertRequested;
+        _productListView.SelectionChanged += OnListViewSelectionChanged;
         
         // Container panel that can switch between views
         _productViewContainer = new Panel
@@ -614,6 +817,7 @@ public class MediaBrowserPanel : Panel
         _productCardGrid.ProductSelected += OnProductSelectedInGrid;
         _productCardGrid.ProductPreview += OnProductPreviewRequested;
         _productCardGrid.ProductInsert += OnProductInsertRequested;
+        _productCardGrid.AddToCollectionRequested += OnAddToCollectionRequested;
 
         var centerLayout = new TableLayout
         {
@@ -670,26 +874,44 @@ public class MediaBrowserPanel : Panel
     
     private Control CreateFavouritesTab()
     {
-        // Use FavouritesView
-        if (_dataService == null || _searchService == null || _userDataService == null || _thumbnailService == null)
+        // Use compact FavouritesView that acts as a filter
+        if (_dataService == null || _userDataService == null)
         {
             return new Label { Text = "Loading..." };
         }
-        var favouritesView = new FavouritesView(_dataService, _searchService, _userDataService, _thumbnailService);
-        favouritesView.ProductSelected += OnProductSelectedInGrid;
+        
+        var favouritesView = new FavouritesViewCompact(_dataService, _userDataService);
+        favouritesView.FilterRequested += OnFilterRequested;
         return favouritesView;
     }
     
     private Control CreateCollectionsTab()
     {
-        // Use CollectionsView
-        if (_dataService == null || _userDataService == null || _thumbnailService == null)
+        // Use compact CollectionsView that acts as a filter
+        RhinoApp.WriteLine("CreateCollectionsTab: ENTRY");
+        
+        if (_dataService == null || _userDataService == null)
         {
+            RhinoApp.WriteLine("CreateCollectionsTab: Services not ready");
             return new Label { Text = "Loading..." };
         }
-        var collectionsView = new CollectionsView(_dataService, _userDataService, _thumbnailService);
-        collectionsView.ProductSelected += OnProductSelectedInGrid;
-        return collectionsView;
+        
+        RhinoApp.WriteLine("CreateCollectionsTab: Creating compact CollectionsView...");
+        try
+        {
+            var collectionsView = new CollectionsViewCompact(_dataService, _userDataService);
+            collectionsView.FilterRequested += OnFilterRequested;
+            collectionsView.CollectionInsertRequested += OnCollectionInsertRequested;
+            collectionsView.RemoveItemsRequested += OnRemoveItemsRequested;
+            RhinoApp.WriteLine("CreateCollectionsTab: CollectionsView created successfully");
+            return collectionsView;
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"CreateCollectionsTab ERROR: {ex.Message}");
+            RhinoApp.WriteLine($"Stack: {ex.StackTrace}");
+            return new Label { Text = $"Error: {ex.Message}" };
+        }
     }
 
     private async Task InitializeAsync()
@@ -805,6 +1027,48 @@ public class MediaBrowserPanel : Panel
                         LogToFile($"InitializeAsync UI Update: FiltersBar loaded with {allTags.Count} unique tags");
                     }
                     
+                    // Refresh Favourites and Collections tabs now that services are ready
+                    RhinoApp.WriteLine("=== REFRESHING FAVOURITES TAB ===");
+                    LogToFile("InitializeAsync UI Update: Refreshing Favourites tab...");
+                    if (_favouritesTabPage != null)
+                    {
+                        _favouritesTabPage.Content = CreateFavouritesTab();
+                        RhinoApp.WriteLine("Favourites tab refreshed successfully");
+                        LogToFile("InitializeAsync UI Update: Favourites tab refreshed");
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine("WARNING: _favouritesTabPage is null!");
+                    }
+                    
+                    RhinoApp.WriteLine("=== REFRESHING COLLECTIONS TAB ===");
+                    LogToFile("InitializeAsync UI Update: Refreshing Collections tab...");
+                    if (_collectionsTabPage != null)
+                    {
+                        _collectionsTabPage.Content = CreateCollectionsTab();
+                        RhinoApp.WriteLine("Collections tab refreshed successfully");
+                        LogToFile("InitializeAsync UI Update: Collections tab refreshed");
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine("WARNING: _collectionsTabPage is null!");
+                    }
+                    
+                    // Refresh sidebar Favourites and Collections tabs
+                    RhinoApp.WriteLine("=== REFRESHING SIDEBAR FAVOURITES TAB ===");
+                    if (_sidebarFavouritesTabPage != null)
+                    {
+                        _sidebarFavouritesTabPage.Content = CreateFavouritesTab();
+                        RhinoApp.WriteLine("Sidebar Favourites tab refreshed successfully");
+                    }
+                    
+                    RhinoApp.WriteLine("=== REFRESHING SIDEBAR COLLECTIONS TAB ===");
+                    if (_sidebarCollectionsTabPage != null)
+                    {
+                        _sidebarCollectionsTabPage.Content = CreateCollectionsTab();
+                        RhinoApp.WriteLine("Sidebar Collections tab refreshed successfully");
+                    }
+                    
                     LogToFile("InitializeAsync UI Update: COMPLETED");
                 }
                 catch (Exception uiEx)
@@ -858,6 +1122,259 @@ public class MediaBrowserPanel : Panel
         _allProducts = _dataService.GetProducts();
         ApplySearch();
         UpdateStatus($"Reloaded {_allProducts.Count} products");
+    }
+    
+    /// <summary>
+    /// Public method to refresh collections (callable from commands)
+    /// </summary>
+    public void RefreshCollections()
+    {
+        RhinoApp.WriteLine("MediaBrowserPanel: RefreshCollections called");
+        
+        // Reload user data first
+        _userDataService?.Load();
+        
+        // Refresh sidebar collections tab if it exists
+        if (_sidebarCollectionsTabPage != null)
+        {
+            Application.Instance.AsyncInvoke(() =>
+            {
+                _sidebarCollectionsTabPage.Content = CreateCollectionsTab();
+                RhinoApp.WriteLine("Collections tab refreshed successfully");
+            });
+        }
+    }
+    
+    /// <summary>
+    /// Handle collections changed event from plugin (triggered by commands)
+    /// </summary>
+    private void OnPluginCollectionsChanged(object? sender, EventArgs e)
+    {
+        RefreshCollections();
+    }
+    
+    /// <summary>
+    /// Handle Add to Collection request from product card
+    /// </summary>
+    private void OnAddToCollectionRequested(object? sender, ProductCardEventArgs e)
+    {
+        if (_userDataService == null) return;
+        
+        RhinoApp.WriteLine($"Add to Collection requested for: {e.Product.ProductName}");
+        
+        // Get all collections
+        var collections = _userDataService.GetCollections().ToList();
+        
+        if (collections.Count == 0)
+        {
+            MessageBox.Show(
+                "No collections exist. Create a collection first from the Collections tab.",
+                "No Collections",
+                MessageBoxType.Information
+            );
+            return;
+        }
+        
+        // Show collection picker dialog
+        var dialog = new Dialog<string>
+        {
+            Title = $"Add '{e.Product.ProductName}' to Collection",
+            Padding = new Padding(10),
+            MinimumSize = new Size(350, 200)
+        };
+        
+        var listBox = new ListBox();
+        foreach (var collection in collections)
+        {
+            listBox.Items.Add(new ListItem
+            {
+                Text = $"{collection.Name} ({collection.Items.Count} items)",
+                Key = collection.Id
+            });
+        }
+        
+        var layout = new DynamicLayout();
+        layout.AddRow(new Label { Text = "Select Collection:" });
+        layout.AddRow(new Scrollable { Content = listBox, Height = 150 });
+        layout.AddRow(null); // spacer
+        
+        var okButton = new Button { Text = "Add" };
+        okButton.Click += (s, args) =>
+        {
+            if (listBox.SelectedIndex >= 0)
+            {
+                dialog.Close(listBox.SelectedKey);
+            }
+        };
+        
+        var cancelButton = new Button { Text = "Cancel" };
+        cancelButton.Click += (s, args) => dialog.Close(null);
+        
+        layout.AddRow(null, okButton, cancelButton);
+        
+        dialog.Content = layout;
+        dialog.DefaultButton = okButton;
+        dialog.AbortButton = cancelButton;
+        
+        var selectedCollectionId = dialog.ShowModal(this);
+        
+        if (!string.IsNullOrEmpty(selectedCollectionId))
+        {
+            // Add product to collection on background thread
+            Task.Run(() =>
+            {
+                try
+                {
+                    var collection = _userDataService.GetCollectionById(selectedCollectionId);
+                    if (collection != null)
+                    {
+                        // Check if already exists
+                        if (collection.Items.Any(item => item.ProductId == e.Product.Id))
+                        {
+                            RhinoApp.WriteLine($"Product '{e.Product.ProductName}' already in collection '{collection.Name}'");
+                            Application.Instance.AsyncInvoke(() =>
+                            {
+                                MessageBox.Show($"'{e.Product.ProductName}' is already in '{collection.Name}'", "Already Added", MessageBoxType.Information);
+                            });
+                            return;
+                        }
+                        
+                        // Add as CollectionItem with holder/packaging settings
+                        var newItem = new CollectionItem
+                        {
+                            ProductId = e.Product.Id,
+                            HolderVariantKey = e.SelectedHolderVariant,
+                            IncludePackaging = e.IncludePackaging,
+                            AddedAt = DateTime.UtcNow
+                        };
+                        
+                        collection.Items.Add(newItem);
+                        
+                        // Also update legacy ProductIds for backwards compatibility
+                        if (!collection.ProductIds.Contains(e.Product.Id))
+                        {
+                            collection.ProductIds.Add(e.Product.Id);
+                        }
+                        
+                        _userDataService.UpdateCollection(collection);
+                        RhinoApp.WriteLine($"✓ Added '{e.Product.ProductName}' to collection '{collection.Name}' with settings: Holder={e.SelectedHolderVariant ?? "none"}, Pkg={e.IncludePackaging}");
+                        
+                        // Refresh collections tab
+                        Application.Instance.AsyncInvoke(() =>
+                        {
+                            if (_sidebarCollectionsTabPage != null)
+                            {
+                                _sidebarCollectionsTabPage.Content = CreateCollectionsTab();
+                            }
+                            UpdateStatus($"Added to collection: {collection.Name}");
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"✗ Error adding to collection: {ex.Message}");
+                }
+            });
+        }
+    }
+    
+    /// <summary>
+    /// Handle remove items request from collections view
+    /// </summary>
+    private void OnRemoveItemsRequested(object? sender, CollectionsViewCompact.RemoveItemsEventArgs e)
+    {
+        if (_userDataService == null || _productListView == null) return;
+        
+        var collection = e.Collection;
+        
+        // Check if we're in multi-select mode with selections
+        if (_multiSelectMode && _productListView.SelectedCount > 0)
+        {
+            // Get selected product IDs
+            var selectedItems = _productListView.GetSelectedItems();
+            var selectedProductIds = selectedItems.Select(item => item.product.Id).ToList();
+            
+            var result = MessageBox.Show(
+                $"Remove {selectedProductIds.Count} product(s) from '{collection.Name}'?",
+                "Remove from Collection",
+                MessageBoxButtons.YesNo
+            );
+            
+            if (result == DialogResult.Yes)
+            {
+                RemoveProductsFromCollection(selectedProductIds, collection);
+            }
+        }
+        else
+        {
+            // No selection - inform user to use multi-select
+            MessageBox.Show(
+                $"To remove items from '{collection.Name}':\n\n" +
+                "1. Enable Multi-Select mode\n" +
+                "2. Check the products you want to remove\n" +
+                "3. Click 'Remove Item' button",
+                "Remove Items",
+                MessageBoxType.Information
+            );
+        }
+    }
+    
+    /// <summary>
+    /// Remove products from collection
+    /// </summary>
+    private void RemoveProductsFromCollection(List<string> productIds, Collection collection)
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                int removedCount = 0;
+                
+                foreach (var productId in productIds)
+                {
+                    // Remove from Items list
+                    var itemToRemove = collection.Items.FirstOrDefault(item => item.ProductId == productId);
+                    if (itemToRemove != null)
+                    {
+                        collection.Items.Remove(itemToRemove);
+                        removedCount++;
+                    }
+                    
+                    // Also remove from legacy ProductIds
+                    collection.ProductIds.Remove(productId);
+                }
+                
+                _userDataService.UpdateCollection(collection);
+                RhinoApp.WriteLine($"✓ Removed {removedCount} product(s) from collection '{collection.Name}'");
+                
+                // Refresh UI
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    if (_sidebarCollectionsTabPage != null)
+                    {
+                        _sidebarCollectionsTabPage.Content = CreateCollectionsTab();
+                    }
+                    
+                    // Refresh the current view to remove the products
+                    _filteredProducts = _allProducts
+                        .Where(p => collection.Items.Any(item => item.ProductId == p.Id))
+                        .ToList();
+                    
+                    LoadProductsIntoCurrentView();
+                    UpdateStatus($"Removed {removedCount} product(s) from collection: {collection.Name}");
+                    
+                    // Clear selection
+                    if (_productListView != null)
+                    {
+                        _productListView.ClearSelections();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"✗ Error removing from collection: {ex.Message}");
+            }
+        });
     }
 
     private void OnSearchTextChanged(object? sender, EventArgs e)
@@ -916,6 +1433,827 @@ public class MediaBrowserPanel : Panel
         }
     }
     
+    /// <summary>
+    /// Handle filter request from Favourites/Collections views
+    /// </summary>
+    private void OnFilterRequested(object? sender, FavouritesViewCompact.FilterEventArgs e)
+    {
+        RhinoApp.WriteLine($"=== FILTER REQUESTED: {e.FilterName} ({e.ProductIds.Count} products) ===");
+        
+        // Filter products by IDs
+        _filteredProducts = _allProducts
+            .Where(p => e.ProductIds.Contains(p.Id))
+            .ToList();
+        
+        // Reload products into current view
+        LoadProductsIntoCurrentView();
+        
+        UpdateStatus($"Showing {_filteredProducts.Count} products from {e.FilterName}");
+    }
+    
+    /// <summary>
+    /// Handle filter request from Collections view (same signature)
+    /// </summary>
+    private void OnFilterRequested(object? sender, CollectionsViewCompact.FilterEventArgs e)
+    {
+        RhinoApp.WriteLine($"=== FILTER REQUESTED: {e.FilterName} ({e.ProductIds.Count} products) ===");
+        
+        // Filter products by IDs
+        _filteredProducts = _allProducts
+            .Where(p => e.ProductIds.Contains(p.Id))
+            .ToList();
+        
+        // Reload products into current view
+        LoadProductsIntoCurrentView();
+        
+        UpdateStatus($"Showing {_filteredProducts.Count} products from {e.FilterName}");
+    }
+    
+    /// <summary>
+    /// Handle collection batch insert request
+    /// </summary>
+    private void OnCollectionInsertRequested(object? sender, CollectionsViewCompact.CollectionInsertEventArgs e)
+    {
+        RhinoApp.WriteLine($"=== COLLECTION INSERT REQUESTED: {e.Collection.Name} ({e.Collection.Items.Count} items) ===");
+        
+        // Get insertion origin point (user clicks or auto at 0,0,0)
+        var collectionOrigin = global::Rhino.Geometry.Point3d.Origin;
+        
+        // TODO: Prompt user for insertion point
+        // For now, auto-insert at origin
+        RhinoApp.WriteLine($"Collection will insert at origin: {collectionOrigin}");
+        
+        // Build insert list - separate lists for each block type
+        var toolInserts = new List<(Product product, Holder? holder, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)>();
+        var holderInserts = new List<(string blockName, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)>();
+        var packagingInserts = new List<(Product product, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)>();
+        
+        foreach (var collectionItem in e.Collection.Items)
+        {
+            var blockType = collectionItem.BlockType ?? "Tool"; // Default to Tool for legacy collections
+            
+            // Parse transforms with rotation (format: "x,y,z,rx,ry,rz;x,y,z,rx,ry,rz;...")
+            var transformsWithRotation = ParseTransformsWithRotation(collectionItem.Transforms);
+            
+            RhinoApp.WriteLine($"  • {blockType}: {collectionItem.ProductId}");
+            RhinoApp.WriteLine($"    - InstanceCount: {collectionItem.InstanceCount}");
+            RhinoApp.WriteLine($"    - Transforms: {transformsWithRotation.Count}");
+            
+            if (blockType == "Tool")
+            {
+                // Tool blocks: Look up product and insert with holder/packaging
+                var product = _allProducts.FirstOrDefault(p => p.Id == collectionItem.ProductId);
+                if (product == null)
+                {
+                    RhinoApp.WriteLine($"    ⚠️ Product not found: {collectionItem.ProductId}");
+                    continue;
+                }
+                
+                var holder = ResolveHolderFromKey(product, collectionItem.HolderVariantKey);
+                
+                foreach (var (pos, rot) in transformsWithRotation)
+                {
+                    var absolutePos = new global::Rhino.Geometry.Point3d(
+                        collectionOrigin.X + pos.X,
+                        collectionOrigin.Y + pos.Y,
+                        collectionOrigin.Z + pos.Z
+                    );
+                    toolInserts.Add((product, holder, absolutePos, rot));
+                }
+            }
+            else if (blockType == "Holder")
+            {
+                // Holder blocks: Insert directly at stored positions
+                var blockName = collectionItem.ProductId; // Block definition name
+                
+                foreach (var (pos, rot) in transformsWithRotation)
+                {
+                    var absolutePos = new global::Rhino.Geometry.Point3d(
+                        collectionOrigin.X + pos.X,
+                        collectionOrigin.Y + pos.Y,
+                        collectionOrigin.Z + pos.Z
+                    );
+                    holderInserts.Add((blockName, absolutePos, rot));
+                }
+            }
+            else if (blockType == "Packaging")
+            {
+                // Packaging blocks: Need to find product and load packaging file
+                // The ProductId for packaging is just the product name (e.g. "GBL 18V-750")
+                var productNameFromBlock = collectionItem.ProductId;
+                
+                // Try to find the actual product to get packaging file path
+                var product = _allProducts.FirstOrDefault(p => p.ProductName == productNameFromBlock);
+                if (product != null && product.Packaging != null && !string.IsNullOrEmpty(product.Packaging.FullPath))
+                {
+                    foreach (var (pos, rot) in transformsWithRotation)
+                    {
+                        var absolutePos = new global::Rhino.Geometry.Point3d(
+                            collectionOrigin.X + pos.X,
+                            collectionOrigin.Y + pos.Y,
+                            collectionOrigin.Z + pos.Z
+                        );
+                        RhinoApp.WriteLine($"    - Packaging at ({absolutePos.X:F0}, {absolutePos.Y:F0}, {absolutePos.Z:F0}) with rotation");
+                        packagingInserts.Add((product, absolutePos, rot)); // Store product instead of block name
+                    }
+                }
+                else
+                {
+                    RhinoApp.WriteLine($"    ⚠️ Product or packaging file not found for: {productNameFromBlock}");
+                }
+            }
+        }
+        
+        var totalInstances = toolInserts.Count + holderInserts.Count + packagingInserts.Count;
+        
+        if (totalInstances == 0)
+        {
+            RhinoApp.WriteLine("No blocks to insert");
+            UpdateStatus("No blocks to insert");
+            return;
+        }
+        
+        RhinoApp.WriteLine($"Inserting {totalInstances} total blocks ({toolInserts.Count} tools, {holderInserts.Count} holders, {packagingInserts.Count} packaging)...");
+        UpdateStatus($"Inserting collection: {e.Collection.Name}...");
+        
+        // Insert all instances on background thread with progress
+        Task.Run(() =>
+        {
+            int inserted = 0;
+            
+            // Insert tools ONLY (no auto-generation of holders/packaging)
+            foreach (var (product, holder, insertPoint, rotation) in toolInserts)
+            {
+                try
+                {
+                    Application.Instance.Invoke(() =>
+                    {
+                        // Insert tool WITHOUT auto-generating holder/packaging
+                        // We'll insert them separately from the stored collection data
+                        InsertToolOnlyWithRotation(product, holder, insertPoint, rotation);
+                    });
+                    
+                    inserted++;
+                    Application.Instance.AsyncInvoke(() =>
+                    {
+                        UpdateStatus($"Inserting... ({inserted}/{totalInstances})");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Error inserting tool {product.ProductName}: {ex.Message}");
+                }
+            }
+            
+            // Insert holders directly (load files if needed)
+            foreach (var (blockName, insertPoint, rotation) in holderInserts)
+            {
+                try
+                {
+                    Application.Instance.Invoke(() =>
+                    {
+                        InsertHolderBlockWithRotation(blockName, insertPoint, rotation);
+                    });
+                    
+                    inserted++;
+                    Application.Instance.AsyncInvoke(() =>
+                    {
+                        UpdateStatus($"Inserting... ({inserted}/{totalInstances})");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Error inserting holder {blockName}: {ex.Message}");
+                }
+            }
+            
+            // Insert packaging directly with rotation (load from file if needed)
+            foreach (var (product, insertPoint, rotation) in packagingInserts)
+            {
+                try
+                {
+                    Application.Instance.Invoke(() =>
+                    {
+                        InsertPackagingWithRotation(product, insertPoint, rotation);
+                    });
+                    
+                    inserted++;
+                    Application.Instance.AsyncInvoke(() =>
+                    {
+                        UpdateStatus($"Inserting... ({inserted}/{totalInstances})");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Error inserting packaging {product.ProductName}: {ex.Message}");
+                }
+            }
+            
+            Application.Instance.AsyncInvoke(() =>
+            {
+                UpdateStatus($"✓ Collection inserted: {inserted}/{totalInstances} blocks");
+                RhinoApp.WriteLine($"✓ Collection '{e.Collection.Name}' inserted: {inserted}/{totalInstances} blocks");
+            });
+        });
+    }
+    
+    /// <summary>
+    /// Parse transform string into list of Point3d positions (legacy, ignores rotation)
+    /// Format: "x,y,z,rx,ry,rz;x,y,z,rx,ry,rz;..."
+    /// </summary>
+    private List<global::Rhino.Geometry.Point3d> ParseTransforms(string? transformsString)
+    {
+        var positions = new List<global::Rhino.Geometry.Point3d>();
+        
+        if (string.IsNullOrEmpty(transformsString))
+            return positions;
+        
+        try
+        {
+            var transformEntries = transformsString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            
+            foreach (var entry in transformEntries)
+            {
+                var values = entry.Split(',');
+                if (values.Length >= 3)
+                {
+                    if (double.TryParse(values[0], out var x) &&
+                        double.TryParse(values[1], out var y) &&
+                        double.TryParse(values[2], out var z))
+                    {
+                        positions.Add(new global::Rhino.Geometry.Point3d(x, y, z));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"Error parsing transforms: {ex.Message}");
+        }
+        
+        return positions;
+    }
+    
+    /// <summary>
+    /// Parse transform string into list of (position, rotation) tuples
+    /// Format: "x,y,z,rx,ry,rz;x,y,z,rx,ry,rz;..."
+    /// </summary>
+    private List<(global::Rhino.Geometry.Point3d position, global::Rhino.Geometry.Transform rotation)> ParseTransformsWithRotation(string? transformsString)
+    {
+        var transforms = new List<(global::Rhino.Geometry.Point3d, global::Rhino.Geometry.Transform)>();
+        
+        if (string.IsNullOrEmpty(transformsString))
+            return transforms;
+        
+        try
+        {
+            var transformEntries = transformsString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            
+            foreach (var entry in transformEntries)
+            {
+                var values = entry.Split(',');
+                if (values.Length >= 6)
+                {
+                    if (double.TryParse(values[0], out var x) &&
+                        double.TryParse(values[1], out var y) &&
+                        double.TryParse(values[2], out var z) &&
+                        double.TryParse(values[3], out var rotX) &&
+                        double.TryParse(values[4], out var rotY) &&
+                        double.TryParse(values[5], out var rotZ))
+                    {
+                        var position = new global::Rhino.Geometry.Point3d(x, y, z);
+                        
+                        // Create rotation transform from Euler angles (degrees)
+                        var rotation = global::Rhino.Geometry.Transform.Identity;
+                        
+                        if (rotX != 0 || rotY != 0 || rotZ != 0)
+                        {
+                            // Convert degrees to radians
+                            var radX = global::Rhino.RhinoMath.ToRadians(rotX);
+                            var radY = global::Rhino.RhinoMath.ToRadians(rotY);
+                            var radZ = global::Rhino.RhinoMath.ToRadians(rotZ);
+                            
+                            // Compose rotation: Rz * Ry * Rx (ZYX Euler convention)
+                            rotation = global::Rhino.Geometry.Transform.Rotation(radZ, global::Rhino.Geometry.Vector3d.ZAxis, global::Rhino.Geometry.Point3d.Origin) *
+                                      global::Rhino.Geometry.Transform.Rotation(radY, global::Rhino.Geometry.Vector3d.YAxis, global::Rhino.Geometry.Point3d.Origin) *
+                                      global::Rhino.Geometry.Transform.Rotation(radX, global::Rhino.Geometry.Vector3d.XAxis, global::Rhino.Geometry.Point3d.Origin);
+                        }
+                        
+                        transforms.Add((position, rotation));
+                    }
+                }
+                else if (values.Length >= 3)
+                {
+                    // Fallback: only position, no rotation
+                    if (double.TryParse(values[0], out var x) &&
+                        double.TryParse(values[1], out var y) &&
+                        double.TryParse(values[2], out var z))
+                    {
+                        transforms.Add((new global::Rhino.Geometry.Point3d(x, y, z), global::Rhino.Geometry.Transform.Identity));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"Error parsing transforms with rotation: {ex.Message}");
+        }
+        
+        return transforms;
+    }
+    
+    /// <summary>
+    /// Insert a block instance directly by block definition name with position and rotation
+    /// </summary>
+    private void InsertBlockInstanceDirect(string blockDefName, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)
+    {
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        // Find block definition by name
+        var blockDef = doc.InstanceDefinitions.Find(blockDefName);
+        if (blockDef == null)
+        {
+            RhinoApp.WriteLine($"⚠️ Block definition not found: {blockDefName}");
+            return;
+        }
+        
+        // Create transform: translation + rotation
+        var transform = global::Rhino.Geometry.Transform.Translation(insertPoint.X, insertPoint.Y, insertPoint.Z) * rotation;
+        
+        // Insert block instance
+        var objId = doc.Objects.AddInstanceObject(blockDef.Index, transform);
+        
+        if (objId != Guid.Empty)
+        {
+            RhinoApp.WriteLine($"✓ Inserted block '{blockDefName}' at ({insertPoint.X:F0}, {insertPoint.Y:F0}, {insertPoint.Z:F0})");
+        }
+        else
+        {
+            RhinoApp.WriteLine($"✗ Failed to insert block '{blockDefName}'");
+        }
+    }
+    
+    /// <summary>
+    /// Insert tool only with rotation (no holder, no packaging) for collection restoration
+    /// </summary>
+    private void InsertToolOnlyWithRotation(Product product, Holder? holder, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)
+    {
+        // Find the correct 3DM file based on holder selection
+        var toolMeshPath = Find3DMFile(product, holder);
+        
+        if (string.IsNullOrEmpty(toolMeshPath))
+        {
+            RhinoApp.WriteLine($"✗ Tool mesh file not found for: {product.ProductName}");
+            return;
+        }
+        
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        // Load the tool file and create block definition if needed
+        var fileName = Path.GetFileNameWithoutExtension(toolMeshPath);
+        var holderSuffix = holder != null ? $"_{holder.Variant}_{holder.Color}" : "";
+        var blockName = fileName + holderSuffix;
+        
+        var blockDef = doc.InstanceDefinitions.Find(blockName);
+        
+        if (blockDef == null)
+        {
+            // Check if holder transform needs to be applied to the geometry
+            var targetHolder = holder?.Variant ?? product.ReferenceHolder ?? "Tego";
+            var needsHolderTransform = product.HolderTransforms != null && 
+                                      product.HolderTransforms.ContainsKey(targetHolder) && 
+                                      holder != null;
+            
+            if (needsHolderTransform)
+            {
+                // Load tool file and apply holder transform to geometry
+                LoadFileAsBlockDefinitionWithTransform(toolMeshPath, blockName, product, holder);
+            }
+            else
+            {
+                // Load tool file as-is
+                LoadFileAsBlockDefinition(toolMeshPath, blockName);
+            }
+            
+            blockDef = doc.InstanceDefinitions.Find(blockName);
+        }
+        
+        if (blockDef != null)
+        {
+            // Create transform: translation + rotation from stored data
+            // The stored rotation is the final world rotation of the instance
+            var transform = global::Rhino.Geometry.Transform.Translation(insertPoint.X, insertPoint.Y, insertPoint.Z) * rotation;
+            
+            // Insert block instance with stored rotation
+            var objId = doc.Objects.AddInstanceObject(blockDef.Index, transform);
+            
+            if (objId != Guid.Empty)
+            {
+                // Attach metadata
+                var newObj = doc.Objects.FindId(objId);
+                if (newObj != null)
+                {
+                    newObj.Attributes.SetUserString("BMB_BlockType", "Tool");
+                    newObj.Attributes.SetUserString("BMB_ProductId", product.Id);
+                    if (holder != null)
+                    {
+                        newObj.Attributes.SetUserString("BMB_HolderVariant", $"{holder.Variant}_{holder.Color}");
+                    }
+                    newObj.CommitChanges();
+                }
+                
+                RhinoApp.WriteLine($"✓ Inserted tool: {product.ProductName} (collection restore with rotation)");
+            }
+            else
+            {
+                RhinoApp.WriteLine($"✗ Failed to insert tool: {product.ProductName}");
+            }
+        }
+        else
+        {
+            RhinoApp.WriteLine($"✗ Block definition not found after loading: {blockName}");
+        }
+    }
+    
+    /// <summary>
+    /// Load a 3DM file as a block definition with holder transform applied to geometry
+    /// </summary>
+    private void LoadFileAsBlockDefinitionWithTransform(string filePath, string blockName, Product product, Holder holder)
+    {
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        try
+        {
+            // Check if block definition already exists
+            var existingDef = doc.InstanceDefinitions.Find(blockName);
+            if (existingDef != null)
+            {
+                RhinoApp.WriteLine($"Block definition '{blockName}' already exists");
+                return;
+            }
+            
+            // Read the 3DM file and extract geometry
+            using (var file3dm = global::Rhino.FileIO.File3dm.Read(filePath))
+            {
+                if (file3dm == null)
+                {
+                    RhinoApp.WriteLine($"✗ Failed to read file: {filePath}");
+                    return;
+                }
+                
+                var geometry = new List<global::Rhino.Geometry.GeometryBase>();
+                var attributes = new List<global::Rhino.DocObjects.ObjectAttributes>();
+                
+                // Calculate holder transform
+                var holderTransform = CalculateHolderTransform(product, holder);
+                
+                foreach (var obj in file3dm.Objects)
+                {
+                    if (obj.Geometry != null)
+                    {
+                        var geom = obj.Geometry.Duplicate();
+                        
+                        // Apply holder transform to geometry
+                        geom.Transform(holderTransform);
+                        
+                        geometry.Add(geom);
+                        attributes.Add(obj.Attributes);
+                    }
+                }
+                
+                if (geometry.Count > 0)
+                {
+                    // Create instance definition with transformed geometry
+                    var defIndex = doc.InstanceDefinitions.Add(blockName, string.Empty, global::Rhino.Geometry.Point3d.Origin, geometry, attributes);
+                    
+                    if (defIndex >= 0)
+                    {
+                        // Convert to linked block
+                        var updateType = global::Rhino.DocObjects.InstanceDefinitionUpdateType.Linked;
+                        bool success = doc.InstanceDefinitions.ModifySourceArchive(defIndex, filePath, updateType, quiet: true);
+                        
+                        if (success)
+                        {
+                            RhinoApp.WriteLine($"✓ Loaded linked block '{blockName}' with holder transform from {Path.GetFileName(filePath)}");
+                        }
+                        else
+                        {
+                            RhinoApp.WriteLine($"✓ Loaded block '{blockName}' with holder transform (embedded)");
+                        }
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine($"✗ Failed to create block definition");
+                    }
+                }
+                else
+                {
+                    RhinoApp.WriteLine($"✗ No geometry found in file: {filePath}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"✗ Error loading block definition: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Calculate holder transform from product holder transform data
+    /// </summary>
+    private global::Rhino.Geometry.Transform CalculateHolderTransform(Product product, Holder holder)
+    {
+        var targetHolder = holder.Variant ?? product.ReferenceHolder ?? "Tego";
+        
+        if (product.HolderTransforms == null || !product.HolderTransforms.ContainsKey(targetHolder))
+        {
+            return global::Rhino.Geometry.Transform.Identity;
+        }
+        
+        var holderTransform = product.HolderTransforms[targetHolder];
+        
+        // Build transform: Scale * Rotation * Translation
+        var transform = global::Rhino.Geometry.Transform.Identity;
+        
+        // Apply scale
+        if (holderTransform.Scale != null && holderTransform.Scale.Length == 3)
+        {
+            var scaleTransform = global::Rhino.Geometry.Transform.Scale(
+                global::Rhino.Geometry.Plane.WorldXY,
+                holderTransform.Scale[0],
+                holderTransform.Scale[1],
+                holderTransform.Scale[2]
+            );
+            transform *= scaleTransform;
+        }
+        
+        // Apply rotation (Euler angles in degrees: X, Y, Z)
+        if (holderTransform.Rotation != null && holderTransform.Rotation.Length == 3)
+        {
+            var radX = global::Rhino.RhinoMath.ToRadians(holderTransform.Rotation[0]);
+            var radY = global::Rhino.RhinoMath.ToRadians(holderTransform.Rotation[1]);
+            var radZ = global::Rhino.RhinoMath.ToRadians(holderTransform.Rotation[2]);
+            
+            transform *= global::Rhino.Geometry.Transform.Rotation(radX, global::Rhino.Geometry.Vector3d.XAxis, global::Rhino.Geometry.Point3d.Origin);
+            transform *= global::Rhino.Geometry.Transform.Rotation(radY, global::Rhino.Geometry.Vector3d.YAxis, global::Rhino.Geometry.Point3d.Origin);
+            transform *= global::Rhino.Geometry.Transform.Rotation(radZ, global::Rhino.Geometry.Vector3d.ZAxis, global::Rhino.Geometry.Point3d.Origin);
+        }
+        
+        // Apply translation
+        if (holderTransform.Translation != null && holderTransform.Translation.Length == 3)
+        {
+            transform *= global::Rhino.Geometry.Transform.Translation(
+                holderTransform.Translation[0],
+                holderTransform.Translation[1],
+                holderTransform.Translation[2]
+            );
+        }
+        
+        return transform;
+    }
+    
+    /// <summary>
+    /// Insert holder block with rotation, loading from file if needed
+    /// </summary>
+    private void InsertHolderBlockWithRotation(string blockDefName, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)
+    {
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        // Check if block definition already exists
+        var blockDef = doc.InstanceDefinitions.Find(blockDefName);
+        
+        if (blockDef == null)
+        {
+            // Need to find and load the holder file
+            // Block name format: "Traverse_RAL9006_NN.ALL.BO07803"
+            // Try to find the holder file in the holders directory
+            
+            var holderFileName = blockDefName + ".3dm";
+            var holderPath = FindHolderFile(holderFileName);
+            
+            if (string.IsNullOrEmpty(holderPath))
+            {
+                RhinoApp.WriteLine($"⚠️ Holder file not found for block: {blockDefName}");
+                return;
+            }
+            
+            // Load holder file without inserting instance (just create block definition)
+            LoadFileAsBlockDefinition(holderPath, blockDefName);
+            
+            // Now try to find the block definition
+            blockDef = doc.InstanceDefinitions.Find(blockDefName);
+        }
+        
+        if (blockDef != null)
+        {
+            // Create transform: translation + rotation
+            var transform = global::Rhino.Geometry.Transform.Translation(insertPoint.X, insertPoint.Y, insertPoint.Z) * rotation;
+            
+            // Insert block instance with rotation
+            var objId = doc.Objects.AddInstanceObject(blockDef.Index, transform);
+            
+            if (objId != Guid.Empty)
+            {
+                // Attach metadata
+                var newObj = doc.Objects.FindId(objId);
+                if (newObj != null)
+                {
+                    newObj.Attributes.SetUserString("BMB_BlockType", "Holder");
+                    newObj.CommitChanges();
+                }
+                
+                RhinoApp.WriteLine($"✓ Inserted holder '{blockDefName}' at ({insertPoint.X:F0}, {insertPoint.Y:F0}, {insertPoint.Z:F0})");
+            }
+            else
+            {
+                RhinoApp.WriteLine($"✗ Failed to insert holder '{blockDefName}'");
+            }
+        }
+        else
+        {
+            RhinoApp.WriteLine($"✗ Block definition not found after loading: {blockDefName}");
+        }
+    }
+    
+    /// <summary>
+    /// Insert packaging block with rotation, loading from file if needed
+    /// </summary>
+    private void InsertPackagingWithRotation(Product product, global::Rhino.Geometry.Point3d insertPoint, global::Rhino.Geometry.Transform rotation)
+    {
+        if (product.Packaging == null || string.IsNullOrEmpty(product.Packaging.FullPath))
+        {
+            RhinoApp.WriteLine($"✗ No packaging file for product: {product.ProductName}");
+            return;
+        }
+        
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        var packagingPath = product.Packaging.FullPath;
+        if (!File.Exists(packagingPath))
+        {
+            RhinoApp.WriteLine($"✗ Packaging file not found: {packagingPath}");
+            return;
+        }
+        
+        // Determine block name from file
+        var fileName = Path.GetFileNameWithoutExtension(packagingPath);
+        
+        // Check if block definition already exists
+        var blockDef = doc.InstanceDefinitions.Find(fileName);
+        
+        if (blockDef == null)
+        {
+            // Load packaging file without inserting instance (just create block definition)
+            LoadFileAsBlockDefinition(packagingPath, fileName);
+            
+            // Now find the block definition we just created
+            blockDef = doc.InstanceDefinitions.Find(fileName);
+        }
+        
+        if (blockDef != null)
+        {
+            // Create transform: translation + rotation
+            var transform = global::Rhino.Geometry.Transform.Translation(insertPoint.X, insertPoint.Y, insertPoint.Z) * rotation;
+            
+            // Insert block instance with rotation
+            var objId = doc.Objects.AddInstanceObject(blockDef.Index, transform);
+            
+            if (objId != Guid.Empty)
+            {
+                // Attach metadata
+                var newObj = doc.Objects.FindId(objId);
+                if (newObj != null)
+                {
+                    newObj.Attributes.SetUserString("BMB_BlockType", "Packaging");
+                    newObj.CommitChanges();
+                }
+                
+                RhinoApp.WriteLine($"✓ Inserted packaging '{fileName}' at ({insertPoint.X:F0}, {insertPoint.Y:F0}, {insertPoint.Z:F0}) with rotation");
+            }
+            else
+            {
+                RhinoApp.WriteLine($"✗ Failed to insert packaging '{fileName}'");
+            }
+        }
+        else
+        {
+            RhinoApp.WriteLine($"✗ Block definition not found after loading: {fileName}");
+        }
+    }
+    
+    /// <summary>
+    /// Load a 3DM file as a block definition without inserting an instance
+    /// </summary>
+    private void LoadFileAsBlockDefinition(string filePath, string blockName)
+    {
+        var doc = global::Rhino.RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+        
+        try
+        {
+            // Check if block definition already exists
+            var existingDef = doc.InstanceDefinitions.Find(blockName);
+            if (existingDef != null)
+            {
+                RhinoApp.WriteLine($"Block definition '{blockName}' already exists");
+                return;
+            }
+            
+            // Read the 3DM file and extract geometry
+            using (var file3dm = global::Rhino.FileIO.File3dm.Read(filePath))
+            {
+                if (file3dm == null)
+                {
+                    RhinoApp.WriteLine($"✗ Failed to read file: {filePath}");
+                    return;
+                }
+                
+                var geometry = new List<global::Rhino.Geometry.GeometryBase>();
+                var attributes = new List<global::Rhino.DocObjects.ObjectAttributes>();
+                
+                foreach (var obj in file3dm.Objects)
+                {
+                    if (obj.Geometry != null)
+                    {
+                        geometry.Add(obj.Geometry);
+                        attributes.Add(obj.Attributes);
+                    }
+                }
+                
+                if (geometry.Count > 0)
+                {
+                    // Create instance definition
+                    var defIndex = doc.InstanceDefinitions.Add(blockName, string.Empty, global::Rhino.Geometry.Point3d.Origin, geometry, attributes);
+                    
+                    if (defIndex >= 0)
+                    {
+                        // Convert to linked block
+                        var updateType = global::Rhino.DocObjects.InstanceDefinitionUpdateType.Linked;
+                        bool success = doc.InstanceDefinitions.ModifySourceArchive(defIndex, filePath, updateType, quiet: true);
+                        
+                        if (success)
+                        {
+                            RhinoApp.WriteLine($"✓ Loaded linked block '{blockName}' from {Path.GetFileName(filePath)}");
+                        }
+                        else
+                        {
+                            RhinoApp.WriteLine($"⚠️ Loaded block '{blockName}' as embedded (link conversion failed)");
+                        }
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine($"✗ Failed to create block definition");
+                    }
+                }
+                else
+                {
+                    RhinoApp.WriteLine($"✗ No geometry found in file: {filePath}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            RhinoApp.WriteLine($"✗ Error loading block definition: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Find holder file by filename in the standard holders directory
+    /// </summary>
+    private string? FindHolderFile(string holderFileName)
+    {
+        // Try standard holders directory structure
+        var basePath = _userDataService?.GetUserData()?.Settings.BaseServerPath;
+        if (string.IsNullOrEmpty(basePath))
+        {
+            return null;
+        }
+        
+        var holdersPath = Path.Combine(basePath, "Holders");
+        
+        if (!Directory.Exists(holdersPath))
+        {
+            return null;
+        }
+        
+        // Search recursively for the holder file
+        var files = Directory.GetFiles(holdersPath, holderFileName, SearchOption.AllDirectories);
+        
+        if (files.Length > 0)
+        {
+            RhinoApp.WriteLine($"✓ Found holder file: {files[0]}");
+            return files[0];
+        }
+        
+        RhinoApp.WriteLine($"✗ Holder file not found: {holderFileName}");
+        return null;
+    }
+    
     private void OnFiltersChanged(object? sender, FiltersChangedEventArgs e)
     {
         if (_searchService == null) return;
@@ -948,7 +2286,7 @@ public class MediaBrowserPanel : Panel
         UpdateStatus($"Previewing: {e.Product.ProductName}");
     }
     
-    private void InsertProductWithHolder(Product product, Holder? holder, bool includePackaging = false)
+    private void InsertProductWithHolder(Product product, Holder? holder, bool includePackaging = false, global::Rhino.Geometry.Point3d? autoInsertPoint = null)
     {
         try
         {
@@ -968,21 +2306,32 @@ public class MediaBrowserPanel : Panel
                 return;
             }
             
-            // Get insertion point (user picks or 0,0,0)
+            // Get insertion point
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
             
-            var getPoint = new global::Rhino.Input.Custom.GetPoint();
-            getPoint.SetCommandPrompt("Select insertion point for product");
-            getPoint.Get();
-            if (getPoint.CommandResult() != global::Rhino.Commands.Result.Success)
-            {
-                RhinoApp.WriteLine("Insert cancelled by user");
-                return;
-            }
+            global::Rhino.Geometry.Point3d insertionPoint;
             
-            var insertionPoint = getPoint.Point();
-            RhinoApp.WriteLine($"Insertion point: {insertionPoint}");
+            if (autoInsertPoint.HasValue)
+            {
+                // Batch insert - use provided point (no user prompt)
+                insertionPoint = autoInsertPoint.Value;
+                RhinoApp.WriteLine($"Auto-insert at: {insertionPoint}");
+            }
+            else
+            {
+                // Single insert - prompt user
+                var getPoint = new global::Rhino.Input.Custom.GetPoint();
+                getPoint.SetCommandPrompt("Select insertion point for product");
+                getPoint.Get();
+                if (getPoint.CommandResult() != global::Rhino.Commands.Result.Success)
+                {
+                    RhinoApp.WriteLine("Insert cancelled by user");
+                    return;
+                }
+                insertionPoint = getPoint.Point();
+                RhinoApp.WriteLine($"Insertion point: {insertionPoint}");
+            }
             
             // Insert tool mesh WITH holder transform
             // CONCEPT: Tool is positioned for reference holder (Tego).
@@ -993,19 +2342,19 @@ public class MediaBrowserPanel : Panel
             {
                 RhinoApp.WriteLine($"Tool will be transformed to fit holder: {holder.Variant}");
             }
-            InsertFile3dmAtPoint(toolMeshPath, insertionPoint, product, holder, applyHolderTransform: true);
+            InsertFile3dmAtPoint(toolMeshPath, insertionPoint, product, holder, applyHolderTransform: true, isPackaging: false, includePackagingMetadata: includePackaging, blockType: "Tool");
             
             // If holder selected, insert holder 3dm at insertion point WITHOUT transform
             // (holder is stationary, tool moves to fit it)
-            if (holder != null && !string.IsNullOrEmpty(holder.FullPath))
+            if (holder != null)
             {
-                // Try to resolve UNC path to mapped drive if needed
-                var holderPath = ResolveFilePath(holder.FullPath);
+                // Use holder's full path stored in the holder object
+                var holderPath = holder.FullPath;
                 
                 if (System.IO.File.Exists(holderPath))
                 {
                     RhinoApp.WriteLine($"Inserting holder (stationary, no transform): {holderPath}");
-                    InsertFile3dmAtPoint(holderPath, insertionPoint, product, null, applyHolderTransform: false);
+                    InsertFile3dmAtPoint(holderPath, insertionPoint, product, null, applyHolderTransform: false, isPackaging: false, includePackagingMetadata: false, blockType: "Holder");
                 }
                 else
                 {
@@ -1031,7 +2380,7 @@ public class MediaBrowserPanel : Panel
                     );
                     
                     RhinoApp.WriteLine($"Inserting packaging at offset: {packagingPath}");
-                    InsertFile3dmAtPoint(packagingPath, packagingPoint, product, null, applyHolderTransform: false);
+                    InsertFile3dmAtPoint(packagingPath, packagingPoint, product, null, applyHolderTransform: false, isPackaging: true, includePackagingMetadata: false, blockType: "Packaging");
                 }
                 else
                 {
@@ -1056,23 +2405,97 @@ public class MediaBrowserPanel : Panel
     {
         var selectedHolder = ResolveHolderFromKey(e.Product, e.SelectedHolderVariant);
         RhinoApp.WriteLine($"Insert requested - Holder: {(selectedHolder != null ? $"{selectedHolder.Variant} - {selectedHolder.Color}" : "None")}, Packaging: {e.IncludePackaging}");
-        InsertProductWithHolder(e.Product, selectedHolder, e.IncludePackaging);
+        
+        // Set product info for command and run it
+        Commands.InsertProductCommand.ProductToInsert = e.Product;
+        Commands.InsertProductCommand.HolderToInsert = selectedHolder;
+        Commands.InsertProductCommand.IncludePackaging = e.IncludePackaging;
+        
+        // Run command (GetPoint will run in proper Rhino context)
+        RhinoApp.RunScript("InsertBoschProduct", false);
+    }
+    
+    /// <summary>
+    /// Handle product insert request from plugin (triggered by command after GetPoint)
+    /// </summary>
+    private void OnPluginProductInsertRequested(object? sender, ProductInsertEventArgs e)
+    {
+        RhinoApp.WriteLine($"Plugin insert request received at point: {e.InsertionPoint}");
+        InsertProductWithHolder(e.Product, e.Holder, e.IncludePackaging, e.InsertionPoint);
     }
     
     private void OnBatchInsertRequested(object? sender, BatchInsertEventArgs e)
     {
         UpdateStatus($"Batch inserting {e.Items.Count} products...");
         
-        int insertedCount = 0;
-        foreach (var (product, holderKey, includePackaging) in e.Items)
+        // Run batch insert on background thread with progress updates
+        Task.Run(() =>
         {
-            var selectedHolder = ResolveHolderFromKey(product, holderKey);
-            InsertProductWithHolder(product, selectedHolder, includePackaging);
-            insertedCount++;
+            int insertedCount = 0;
+            int index = 0;
+            int total = e.Items.Count;
+            
+            foreach (var (product, holderKey, includePackaging) in e.Items)
+            {
+                try
+                {
+                    var selectedHolder = ResolveHolderFromKey(product, holderKey);
+                    
+                    // Auto-insert at origin with X offset: 1000mm per product
+                    var insertPoint = new global::Rhino.Geometry.Point3d(index * 1000, 0, 0);
+                    
+                    // Run insert on UI thread (required for Rhino document operations)
+                    Application.Instance.Invoke(() =>
+                    {
+                        InsertProductWithHolder(product, selectedHolder, includePackaging, insertPoint);
+                    });
+                    
+                    insertedCount++;
+                    index++;
+                    
+                    // Update progress
+                    Application.Instance.AsyncInvoke(() =>
+                    {
+                        UpdateStatus($"Batch inserting... ({insertedCount}/{total})");
+                    });
+                    
+                    RhinoApp.WriteLine($"Inserted {insertedCount}/{total}: {product.ProductName}");
+                }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Error inserting {product.ProductName}: {ex.Message}");
+                }
+            }
+            
+            // Final status update
+            Application.Instance.AsyncInvoke(() =>
+            {
+                UpdateStatus($"Successfully inserted {insertedCount} of {total} products");
+            });
+            
+            RhinoApp.WriteLine($"✓ Batch insert completed: {insertedCount}/{total} products");
+        });
+    }
+    
+    private void OnBatchInsertButtonClicked(object? sender, EventArgs e)
+    {
+        // Trigger batch insert from list view
+        if (_productListView != null && _productListView.SelectedCount > 0)
+        {
+            // The list view will fire BatchInsert event which we handle above
+            _productListView.PerformBatchInsert();
         }
-        
-        UpdateStatus($"Successfully inserted {insertedCount} products");
-        RhinoApp.WriteLine($"✓ Batch insert completed: {insertedCount} products");
+    }
+    
+    private void OnListViewSelectionChanged(object? sender, EventArgs e)
+    {
+        // Update toolbar button text and visibility
+        if (_batchInsertButton != null && _productListView != null)
+        {
+            int count = _productListView.SelectedCount;
+            _batchInsertButton.Text = $"Insert Selected ({count})";
+            _batchInsertButton.Visible = _multiSelectMode && count > 0;
+        }
     }
     
     private Holder? ResolveHolderFromKey(Product product, string? holderKey)
@@ -1121,7 +2544,62 @@ public class MediaBrowserPanel : Panel
         return path;
     }
     
-    private void InsertFile3dmAtPoint(string file3dmPath, global::Rhino.Geometry.Point3d insertPoint, Product product, Holder? holder, bool applyHolderTransform = true)
+    /// <summary>
+    /// Ensures layer hierarchy exists and returns the target layer index
+    /// Example: "Tools and Holders::PRO::Garden::1.Tools and Holders" or "...::2.Packaging"
+    /// </summary>
+    private int EnsureLayerHierarchy(Product product, bool isPackaging)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null) return 0;
+        
+        // Build path: "Tools and Holders" > Range (DIY/PRO) > Category > Sublayer
+        var pathSegments = new List<string>();
+        
+        // Top level: "Tools and Holders" (or topCategory)
+        pathSegments.Add(product.TopCategory ?? "Tools and Holders");
+        
+        // Range level: "PRO" or "DIY"
+        if (!string.IsNullOrEmpty(product.Range))
+        {
+            pathSegments.Add(product.Range);
+        }
+        
+        // Category level: e.g., "Garden"
+        if (!string.IsNullOrEmpty(product.Category))
+        {
+            pathSegments.Add(product.Category);
+        }
+        
+        // Sublayer: "1.Tools and Holders" or "2.Packaging"
+        pathSegments.Add(isPackaging ? "2.Packaging" : "1.Tools and Holders");
+        
+        // Create layers recursively
+        int parentIndex = -1;
+        foreach (var segment in pathSegments)
+        {
+            var layer = new global::Rhino.DocObjects.Layer();
+            layer.Name = segment;
+            layer.ParentLayerId = parentIndex >= 0 ? doc.Layers[parentIndex].Id : Guid.Empty;
+            
+            // Check if layer exists
+            var existingIndex = doc.Layers.FindByFullPath(string.Join("::", pathSegments.Take(pathSegments.IndexOf(segment) + 1)), -1);
+            if (existingIndex < 0)
+            {
+                // Create new layer
+                parentIndex = doc.Layers.Add(layer);
+                RhinoApp.WriteLine($"✓ Created layer: {segment}");
+            }
+            else
+            {
+                parentIndex = existingIndex;
+            }
+        }
+        
+        return parentIndex;
+    }
+    
+    private void InsertFile3dmAtPoint(string file3dmPath, global::Rhino.Geometry.Point3d insertPoint, Product product, Holder? holder, bool applyHolderTransform = true, bool isPackaging = false, bool includePackagingMetadata = false, string blockType = "Tool")
     {
         try
         {
@@ -1134,6 +2612,9 @@ public class MediaBrowserPanel : Panel
                 UpdateStatus("No active Rhino document");
                 return;
             }
+            
+            // Ensure layer hierarchy exists and get target layer
+            int targetLayerIndex = EnsureLayerHierarchy(product, isPackaging);
             
             // Get insert settings FIRST (needed for linked block creation)
             var settings = _settingsService?.GetSettings();
@@ -1315,19 +2796,46 @@ public class MediaBrowserPanel : Panel
                                         explodedIds.Add(newId);
                                         successCount++;
                                         
-                                        // Add metadata to each object
+                                        // Add metadata to each object (BMB = Bosch Media Browser)
+                                        // ONLY attach ProductId to Tool blocks, NOT to Holder or Packaging blocks
                                         var newObj = doc.Objects.FindId(newId);
-                                        if (newObj != null)
+                                        if (newObj != null && blockType == "Tool")
                                         {
-                                            newObj.Attributes.SetUserString("BoschProductId", product.Id);
-                                            newObj.Attributes.SetUserString("BoschProductName", product.ProductName);
-                                            newObj.Attributes.SetUserString("BoschProductSKU", product.Sku ?? "");
-                                            newObj.Attributes.SetUserString("BoschProductFile", file3dmPath);
+                                            // Core product info
+                                            newObj.Attributes.SetUserString("BMB_ProductId", product.Id);
+                                            newObj.Attributes.SetUserString("BMB_ProductName", product.ProductName);
+                                            newObj.Attributes.SetUserString("BMB_ProductSKU", product.Sku ?? "");
+                                            newObj.Attributes.SetUserString("BMB_ProductFile", file3dmPath);
+                                            
+                                            // Holder configuration
                                             if (holder != null)
                                             {
-                                                newObj.Attributes.SetUserString("BoschHolderVariant", holder.Variant);
-                                                newObj.Attributes.SetUserString("BoschHolderColor", holder.Color);
+                                                var holderKey = $"{holder.Variant}_{holder.Color}";
+                                                newObj.Attributes.SetUserString("BMB_HolderVariantKey", holderKey);
+                                                newObj.Attributes.SetUserString("BMB_HolderVariant", holder.Variant);
+                                                newObj.Attributes.SetUserString("BMB_HolderColor", holder.Color);
+                                                newObj.Attributes.SetUserString("BMB_HolderCod", holder.CodArticol);
                                             }
+                                            else
+                                            {
+                                                newObj.Attributes.SetUserString("BMB_HolderVariantKey", "");
+                                            }
+                                            
+                                            // Packaging flag
+                                            newObj.Attributes.SetUserString("BMB_IncludePackaging", includePackagingMetadata.ToString());
+                                            
+                                            // Insertion timestamp
+                                            newObj.Attributes.SetUserString("BMB_InsertedAt", DateTime.UtcNow.ToString("o"));
+                                            
+                                            // Block type marker
+                                            newObj.Attributes.SetUserString("BMB_BlockType", blockType);
+                                            
+                                            newObj.CommitChanges();
+                                        }
+                                        else if (newObj != null)
+                                        {
+                                            // For Holder/Packaging blocks, only mark the type
+                                            newObj.Attributes.SetUserString("BMB_BlockType", blockType);
                                             newObj.CommitChanges();
                                         }
                                     }
@@ -1373,25 +2881,58 @@ public class MediaBrowserPanel : Panel
                     // Insert as block instance (default)
                     RhinoApp.WriteLine($"Inserting as BLOCK INSTANCE");
                     
-                    var objId = doc.Objects.AddInstanceObject(defIndex, transform);
+                    // Set layer in attributes
+                    var attributes = new global::Rhino.DocObjects.ObjectAttributes();
+                    attributes.LayerIndex = targetLayerIndex;
+                    
+                    var objId = doc.Objects.AddInstanceObject(defIndex, transform, attributes);
                     
                     if (objId != Guid.Empty)
                     {
-                        // Store product metadata in object user data
+                        // Store product metadata in object user data (BMB = Bosch Media Browser)
+                        // ONLY attach ProductId to Tool blocks, NOT to Holder or Packaging blocks
                         var obj = doc.Objects.FindId(objId);
-                        if (obj != null)
+                        if (obj != null && blockType == "Tool")
                         {
-                            obj.Attributes.SetUserString("BoschProductId", product.Id);
-                            obj.Attributes.SetUserString("BoschProductName", product.ProductName);
-                            obj.Attributes.SetUserString("BoschProductSKU", product.Sku ?? "");
-                            obj.Attributes.SetUserString("BoschProductFile", file3dmPath);
+                            // Core product info
+                            obj.Attributes.SetUserString("BMB_ProductId", product.Id);
+                            obj.Attributes.SetUserString("BMB_ProductName", product.ProductName);
+                            obj.Attributes.SetUserString("BMB_ProductSKU", product.Sku ?? "");
+                            obj.Attributes.SetUserString("BMB_ProductFile", file3dmPath);
+                            
+                            // Holder configuration (if applicable)
                             if (holder != null)
                             {
-                                obj.Attributes.SetUserString("BoschHolderVariant", holder.Variant);
-                                obj.Attributes.SetUserString("BoschHolderColor", holder.Color);
-                                obj.Attributes.SetUserString("BoschHolderCod", holder.CodArticol);
+                                var holderKey = $"{holder.Variant}_{holder.Color}"; // e.g., "Tego_RAL9006"
+                                obj.Attributes.SetUserString("BMB_HolderVariantKey", holderKey);
+                                obj.Attributes.SetUserString("BMB_HolderVariant", holder.Variant);
+                                obj.Attributes.SetUserString("BMB_HolderColor", holder.Color);
+                                obj.Attributes.SetUserString("BMB_HolderCod", holder.CodArticol);
                             }
+                            else
+                            {
+                                obj.Attributes.SetUserString("BMB_HolderVariantKey", ""); // No holder
+                            }
+                            
+                            // Packaging flag
+                            obj.Attributes.SetUserString("BMB_IncludePackaging", includePackagingMetadata.ToString());
+                            
+                            // Insertion timestamp
+                            obj.Attributes.SetUserString("BMB_InsertedAt", DateTime.UtcNow.ToString("o")); // ISO 8601
+                            
+                            // Block type marker
+                            obj.Attributes.SetUserString("BMB_BlockType", blockType); // "Tool", "Holder", or "Packaging"
+                            
                             obj.CommitChanges();
+                            
+                            RhinoApp.WriteLine($"✓ Metadata attached: ProductId={product.Id}, Holder={holder?.Variant ?? "none"}, Pkg={includePackagingMetadata}");
+                        }
+                        else if (obj != null)
+                        {
+                            // For Holder/Packaging blocks, only mark the type
+                            obj.Attributes.SetUserString("BMB_BlockType", blockType);
+                            obj.CommitChanges();
+                            RhinoApp.WriteLine($"✓ Block type marked: {blockType} (no ProductId attached)");
                         }
                     }
                 }
@@ -1784,58 +3325,45 @@ public class MediaBrowserPanel : Panel
                 Font = SystemFonts.Bold()
             });
             
-            var holderLabel = new Label
-            {
-                Text = "No Holder",
-                Font = new Font(SystemFont.Default, 11)
-            };
+            // Create dropdown list for holder selection
+            var holderDropdown = new DropDown();
+            holderDropdown.Items.Add("No Holder");
             
             var holderOptions = new List<Holder?> { null }; // null = no holder
             holderOptions.AddRange(product.Holders);
-            int currentHolderIndex = 1; // Default to first holder (usually Tego)
             
-            void UpdateHolderLabel()
+            foreach (var holder in product.Holders)
             {
-                var holder = holderOptions[currentHolderIndex];
-                if (holder == null)
+                holderDropdown.Items.Add($"{holder.Variant} - {holder.Color} ({holder.CodArticol})");
+            }
+            
+            // Default to first holder (usually Tego)
+            holderDropdown.SelectedIndex = 1;
+            selectedHolder = holderOptions[1];
+            
+            // Load initial holder preview
+            if (selectedHolder != null)
+            {
+                LoadPreviewImage(selectedHolder.Preview, holderPreviewImage);
+            }
+            
+            // Update selection when dropdown changes
+            holderDropdown.SelectedIndexChanged += (s, e) =>
+            {
+                var index = holderDropdown.SelectedIndex;
+                selectedHolder = holderOptions[index];
+                
+                if (selectedHolder == null)
                 {
-                    holderLabel.Text = "✓ No Holder";
-                    selectedHolder = null;
                     holderPreviewImage.Image = null;
                 }
                 else
                 {
-                    holderLabel.Text = $"✓ {holder.Variant} - {holder.Color} ({holder.CodArticol})";
-                    selectedHolder = holder;
-                    // Load holder preview image
-                    LoadPreviewImage(holder.Preview, holderPreviewImage);
+                    LoadPreviewImage(selectedHolder.Preview, holderPreviewImage);
                 }
-            }
-            
-            var prevButton = new Button { Text = "◀ Previous", Width = 90 };
-            var nextButton = new Button { Text = "Next ▶", Width = 90 };
-            
-            prevButton.Click += (s, e) =>
-            {
-                currentHolderIndex = (currentHolderIndex - 1 + holderOptions.Count) % holderOptions.Count;
-                UpdateHolderLabel();
             };
             
-            nextButton.Click += (s, e) =>
-            {
-                currentHolderIndex = (currentHolderIndex + 1) % holderOptions.Count;
-                UpdateHolderLabel();
-            };
-            
-            UpdateHolderLabel();
-            
-            detailsStack.Items.Add(holderLabel);
-            detailsStack.Items.Add(new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 10,
-                Items = { prevButton, nextButton }
-            });
+            detailsStack.Items.Add(holderDropdown);
         }
         
         // Packaging checkbox
@@ -1870,6 +3398,17 @@ public class MediaBrowserPanel : Panel
             InsertProductWithHolder(product, selectedHolder, includePackaging);
         };
         
+        var addToCollectionBtn = new Button
+        {
+            Text = "📁 Add to Collection",
+            Width = 150
+        };
+        addToCollectionBtn.Click += (s, e) =>
+        {
+            // Don't close dialog - let user continue
+            OnAddToCollectionRequested(this, new ProductCardEventArgs(product));
+        };
+        
         var closeBtn = new Button
         {
             Text = "Close",
@@ -1882,7 +3421,7 @@ public class MediaBrowserPanel : Panel
             Orientation = Orientation.Horizontal,
             Spacing = 10,
             HorizontalContentAlignment = HorizontalAlignment.Right,
-            Items = { insertBtn, closeBtn }
+            Items = { insertBtn, addToCollectionBtn, closeBtn }
         };
         
         detailsStack.Items.Add(buttonLayout);
@@ -2037,6 +3576,16 @@ public class MediaBrowserPanel : Panel
             _multiSelectButton.Text = _multiSelectMode ? "✓ Multi-Select" : "Multi-Select";
         }
         
+        // Update batch insert button visibility
+        if (_batchInsertButton != null)
+        {
+            if (!_multiSelectMode)
+            {
+                _batchInsertButton.Visible = false;
+            }
+            // else visibility will be controlled by selection count
+        }
+        
         // Apply to current view (grid or list)
         if (_isGridView && _productCardGrid != null)
         {
@@ -2117,6 +3666,132 @@ public class MediaBrowserPanel : Panel
             }
         }
     }
+    
+    private void OnExportStockingList(object? sender, EventArgs e)
+    {
+        try
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+            {
+                MessageBox.Show("No active Rhino document", "Export Failed", MessageBoxType.Warning);
+                return;
+            }
+            
+            UpdateStatus("Analyzing block instances...");
+            
+            // Dictionary to count blocks: key = block name, value = count
+            var toolCounts = new Dictionary<string, int>();
+            var holderCounts = new Dictionary<string, int>();
+            var packagingCounts = new Dictionary<string, int>();
+            
+            // Scan all block instances in document
+            foreach (var obj in doc.Objects)
+            {
+                if (obj.ObjectType == global::Rhino.DocObjects.ObjectType.InstanceReference)
+                {
+                    var instanceObj = obj as global::Rhino.DocObjects.InstanceObject;
+                    if (instanceObj != null)
+                    {
+                        var defName = instanceObj.InstanceDefinition.Name;
+                        
+                        // Categorize by block name patterns
+                        // Holder pattern: {Variant}_{Color}_{CodArticol}
+                        // Example: Tego_RAL7043_BO.161.9LL8600
+                        
+                        if (defName.Contains("packaging", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Packaging block
+                            if (!packagingCounts.ContainsKey(defName))
+                                packagingCounts[defName] = 0;
+                            packagingCounts[defName]++;
+                        }
+                        else if ((defName.StartsWith("Tego_", StringComparison.OrdinalIgnoreCase) || 
+                                  defName.StartsWith("Traverse_", StringComparison.OrdinalIgnoreCase)) &&
+                                 defName.Contains("RAL", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Holder block: Starts with variant name + contains RAL color code
+                            if (!holderCounts.ContainsKey(defName))
+                                holderCounts[defName] = 0;
+                            holderCounts[defName]++;
+                        }
+                        else
+                        {
+                            // Tool block (everything else)
+                            if (!toolCounts.ContainsKey(defName))
+                                toolCounts[defName] = 0;
+                            toolCounts[defName]++;
+                        }
+                    }
+                }
+            }
+            
+            // Prompt for save location
+            var saveDialog = new SaveFileDialog
+            {
+                Title = "Export Stocking List",
+                Filters = { new FileFilter("CSV Files", ".csv") },
+                FileName = $"StockingList_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+            };
+            
+            if (saveDialog.ShowDialog(this) == DialogResult.Ok)
+            {
+                var csvPath = saveDialog.FileName;
+                
+                // Write CSV
+                using (var writer = new System.IO.StreamWriter(csvPath))
+                {
+                    // Header
+                    writer.WriteLine("Category,Item Name,Quantity");
+                    writer.WriteLine();
+                    
+                    // Tools section
+                    writer.WriteLine("=== TOOLS ===,,");
+                    foreach (var kvp in toolCounts.OrderBy(x => x.Key))
+                    {
+                        writer.WriteLine($"Tool,\"{kvp.Key}\",{kvp.Value}");
+                    }
+                    writer.WriteLine($",TOTAL TOOLS,{toolCounts.Values.Sum()}");
+                    writer.WriteLine();
+                    
+                    // Holders section
+                    writer.WriteLine("=== HOLDERS ===,,");
+                    foreach (var kvp in holderCounts.OrderBy(x => x.Key))
+                    {
+                        writer.WriteLine($"Holder,\"{kvp.Key}\",{kvp.Value}");
+                    }
+                    writer.WriteLine($",TOTAL HOLDERS,{holderCounts.Values.Sum()}");
+                    writer.WriteLine();
+                    
+                    // Packaging section
+                    writer.WriteLine("=== PACKAGING ===,,");
+                    foreach (var kvp in packagingCounts.OrderBy(x => x.Key))
+                    {
+                        writer.WriteLine($"Packaging,\"{kvp.Key}\",{kvp.Value}");
+                    }
+                    writer.WriteLine($",TOTAL PACKAGING,{packagingCounts.Values.Sum()}");
+                    writer.WriteLine();
+                    
+                    // Summary
+                    writer.WriteLine("=== SUMMARY ===,,");
+                    writer.WriteLine($"Total Tools,{toolCounts.Count},{toolCounts.Values.Sum()}");
+                    writer.WriteLine($"Total Holder Types,{holderCounts.Count},{holderCounts.Values.Sum()}");
+                    writer.WriteLine($"Total Packaging Types,{packagingCounts.Count},{packagingCounts.Values.Sum()}");
+                }
+                
+                UpdateStatus($"Exported stocking list: {System.IO.Path.GetFileName(csvPath)}");
+                MessageBox.Show($"Stocking list exported successfully!\n\n{csvPath}", "Export Complete", MessageBoxType.Information);
+                
+                // Open the file
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(csvPath) { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus($"Export failed: {ex.Message}");
+            MessageBox.Show($"Failed to export stocking list:\n\n{ex.Message}", "Export Error", MessageBoxType.Error);
+        }
+    }
 
     private void OnSettingsClicked(object? sender, EventArgs e)
     {
@@ -2131,6 +3806,9 @@ public class MediaBrowserPanel : Panel
         
         if (result)
         {
+            // Apply theme colors immediately
+            ApplyThemeColors();
+            
             // Settings saved, reload data
             UpdateStatus("Settings saved. Reloading database...");
             _ = Task.Run(async () =>
